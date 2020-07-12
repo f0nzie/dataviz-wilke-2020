@@ -1,12 +1,11 @@
 # dataviz 2020
 
-[toc]
-
 
 
 ## Details
 * R-3.6.3
 * RStudio 1.2.5042
+* Built using snapshots from MRAN at 2019-06-12
 
 ## Build and run the image
 
@@ -21,7 +20,6 @@ docker build -t fonzie/wilke:3.6.3 .
 ```
 docker run --rm -p 8787:8787 -v /home/msfz751/docker-share/wilke:/home/rstudio/share  -e USERID=$UID -e PASSWORD=wilke  fonzie/wilke:3.6.3
 ```
-
 
 
 ## Packages and dependencies
@@ -46,65 +44,49 @@ These are the packages that are not in CRAN. The following packages are not in *
 ### CRAN packages
 
 * bookdown
-egg 
-emmeans
-forcats 
-foreign 
-gapminder 
-gganimate
-ggrepel 
-ggridges 
-ggthemes 
-ggforce 
-ggmap 
-ggplot2movies
-ggspatial
-gridGraphics
-gridExtra 
-geofacet 
-gtable
-hexbin
-lobstr
-lwgeom
-lubridate
-magick 
-maps 
-maptools 
-mvtnorm
-nycflights13 
-nlme 
-
+* egg 
+* emmeans
+* forcats 
+* foreign 
+* gapminder 
+* gganimate
+* ggrepel 
+* ggridges 
+* ggthemes 
+* ggforce 
+* ggmap 
+* ggplot2movies
+* ggspatial
+* gridGraphics
+* gridExtra 
+* geofacet 
+* gtable
+* hexbin
+* lobstr
+* lwgeom
+* lubridate
+* magick 
+* maps 
+* maptools 
+* mvtnorm
+* nycflights13 
+* nlme
 * patchwork
-
 * plot3D
-
 * readr 
-
-* rgdal 
-
-* rgeos 
-
+* rgdal
+* rgeos
 * rworldmap
-
 * rstanarm
-
 * sf 
-
 * statebins
-
 * tidyverse 
-
 * tidybayes
-
 * treemapify 
-
 * transformr
-
 * units
 
- 
-
-  
+   
 
 ### Other packages
 At operating system level these packages need to be installed:
