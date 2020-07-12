@@ -1,0 +1,76 @@
+Package: dviz.supp
+Title: Supporting materials for Claus Wilke's data visualization book
+Version: 0.1.0
+Authors@R: c(person("Claus O.", "Wilke", role = c("aut", "cre"), email =
+    "wilke@austin.utexas.edu"))
+Description: This package provides supporting materials for Claus Wilke's data visualization book.
+URL: https://github.com/clauswilke/dviz.supp
+Depends:
+    R (>= 3.5.0),
+    cowplot (>= 1.0.0),
+    colorspace (>= 1.4-0),
+    colorblindr (>= 0.1.0),
+    dplyr (>= 0.7.4)
+Imports:
+    ggplot2 (>= 2.2.1),
+    gtable,
+    rstanarm
+Suggests:
+    tidyr,
+    knitr
+License: MIT + file LICENSE
+LazyData: true
+VignetteBuilder: knitr
+Collate:
+  'align_legend.R'
+  'Aus_athletes.R'
+  'BA_degrees.R'
+  'blue_jays.R'
+  'bridges.R'
+  'bundestag.R'
+  'cacao.R'
+  'CHIP_tax.R'
+  'CO2.R'
+  'CO2_emissions.R'
+  'correlation_examples.R'
+  'corruption.R'
+  'cows.R'
+  'cvd_sim.R'
+  'dow_jones_industrial.R'
+  'draw_land.R'
+  'dviz.supp.R'
+  'dw_nominate.R'
+  'flight_delays.R'
+  'forensic_glass.R'
+  'fred_md.R'
+  'gene_expression.R'
+  'happy.R'
+  'house_prices.R'
+  'income_by_age.R'
+  'internet.R'
+  'label_log10.R'
+  'legosets.R'
+  'marketshare.R'
+  'map_polys.R'
+  'Moby_Dick.R'
+  'movie_lengths.R'
+  'moving_average.R'
+  'ncdc_normals.R'
+  'pad_figure.R'
+  'plot_grid.R'
+  'preprint_growth.R'
+  'stamp.R'
+  'stat_sina.R'
+  'tech_stocks.R'
+  'themes.R'
+  'tidy_census.R'
+  'titanic.R'
+  'US_census.R'
+  'US_regions.R'
+  'US_income.R'
+  'US_income_age.R'
+  'US_states_geoms.R'
+  'wind_turbines.R'
+  'women_parliaments.R'
+RoxygenNote: 6.1.1
+Roxygen: list(markdown = TRUE)

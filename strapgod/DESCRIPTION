@@ -1,0 +1,34 @@
+Package: strapgod
+Title: Resampled Data Frames
+Version: 0.0.4.9000
+Authors@R: 
+    person(given = "Davis",
+           family = "Vaughan",
+           role = c("aut", "cre"),
+           email = "davis@rstudio.com")
+Description: Create data frames with virtual groups that can be used with 
+    'dplyr' to efficiently compute resampled statistics, generate the data for
+    hypothetical outcome plots, and fit multiple models on resampled variations
+    of the original data.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 6.1.1
+Depends:
+    R (>= 3.2.0)
+Imports: 
+    dplyr (>= 0.8.3),
+    tidyr (>= 1.0.0),
+    rlang,
+    tibble,
+    lifecycle
+Suggests: 
+    broom,
+    testthat,
+    covr,
+    knitr,
+    rmarkdown
+URL: https://github.com/DavisVaughan/strapgod
+BugReports: https://github.com/DavisVaughan/strapgod/issues
+VignetteBuilder: knitr

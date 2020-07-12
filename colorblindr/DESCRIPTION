@@ -1,0 +1,45 @@
+Package: colorblindr
+Type: Package
+Title: Simulate colorblindness in R figures
+Version: 0.1.0
+Authors@R: c( 
+    person("Claire D.", "McWhite", , "claire.mcwhite@utexas.edu", c("aut")),
+    person("Claus O.", "Wilke", , "wilke@austin.utexas.edu", c("cre", "aut")))
+Description: Provides a variety of functions that are helpful to simulate 
+  the effects of colorblindness in R figures. Complete figures can be modified
+  to simulate the effects of various types of colorblindness. The resulting 
+  figures are standard grid objects and can be further manipulated or outputted
+  as usual.
+URL: https://github.com/clauswilke/colorblindr
+Depends:
+    R (>= 3.2),
+    grDevices,
+    colorspace (>= 1.4-0),
+    ggplot2 (>= 2.1)
+Imports:
+    cowplot (> 0.8.0),
+    shiny (>= 1.0.0),
+    scales (>= 0.5.0),
+    methods
+License: MIT + file LICENSE
+LazyData: true
+Suggests:
+    covr,
+    gtable,
+    knitr,
+    magick,
+    rmarkdown,
+    testthat,
+    vdiffr,
+    viridis
+VignetteBuilder: knitr
+Collate:
+    'cvd_grid.R'
+    'edit_colors.R'
+    'scales.R'
+    'palettes.R'
+    'gg_color_swatches.R'
+    'utils.R'
+    'view_cvd.R'
+RoxygenNote: 6.1.0
+Roxygen: list(markdown = TRUE)

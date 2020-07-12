@@ -1,0 +1,12 @@
+^docs$
+^_pkgdown\.yml$
+^data-raw$
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.travis\.yml$
+^\.codecov\.yml$
+^README\.Rmd$
+^cran-comments.md$
+^ISSUE_TEMPLATE\.md$
+^TODO\.Rmd$
+^revdep$

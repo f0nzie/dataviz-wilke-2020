@@ -1,0 +1,22 @@
+# R for travis: see documentation at https://docs.travis-ci.com/user/languages/r
+
+language: r
+sudo: false
+cache: packages
+
+matrix:
+  include:
+  - r: devel
+  - r: release
+    after_success:
+    - Rscript -e 'covr::codecov()'
+    before_cache:
+      - Rscript -e 'remotes::install_cran("pkgdown")'
+      # For the README
+      - Rscript -e 'remotes::install_cran("ggplot2")'
+    deploy:
+      provider: script
+      script: Rscript -e 'pkgdown::deploy_site_github(run_dont_run = TRUE)'
+      skip_cleanup: true
+  - r: oldrel
+  - r: 3.2

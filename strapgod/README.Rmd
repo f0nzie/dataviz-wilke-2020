@@ -1,0 +1,115 @@
+---
+output: github_document
+editor_options: 
+  chunk_output_type: console
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+# strapgod
+
+<!-- badges: start -->
+[![Codecov test coverage](https://codecov.io/gh/DavisVaughan/strapgod/branch/master/graph/badge.svg)](https://codecov.io/gh/DavisVaughan/strapgod?branch=master)
+[![Travis build status](https://travis-ci.org/DavisVaughan/strapgod.svg?branch=master)](https://travis-ci.org/DavisVaughan/strapgod)
+[![CRAN status](https://www.r-pkg.org/badges/version/strapgod)](https://cran.r-project.org/package=strapgod)
+[![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://www.tidyverse.org/lifecycle/#experimental)
+<!-- badges: end -->
+
+<p align="center">
+  <img src="./man/figures/strap-god.jpg">
+</p>
+
+## Introduction
+
+The goal of strapgod is to create _virtual groups_ on top of a `tibble` or `grouped_df` as a way of resampling the original data frame. You can then efficiently perform various dplyr operations on this `resampled_df`, like: `summarise()`, `do()`, `group_map()`, and more, to easily compute bootstrapped and resampled statistics.
+
+## Installation
+
+You can install the released version of strapgod from [CRAN](https://CRAN.R-project.org) with:
+
+``` r
+install.packages("strapgod")
+```
+
+Install the development version from GitHub with:
+
+``` r
+devtools::install_github("DavisVaughan/strapgod")
+```
+
+## Learning about strapgod
+
+If you aren't already on the [pkgdown site](https://davisvaughan.github.io/strapgod/), I would encourage starting there. From there, you will be able to click on these two vignettes to learn about working with resampled tibbles.
+
+- `vignette("virtual-bootstraps", "strapgod")`
+
+- `vignette("dplyr-support", "strapgod")`
+
+## Example
+
+Create resampled data frames with `bootstrapify()` or `samplify()`. Notice how we grouped by the _virtual_ column, `.bootstrap` and there are still only 150 rows even though we bootstrapped this dataset 10 times.
+
+```{r first-strap, warning=FALSE, message=FALSE}
+library(strapgod)
+library(dplyr)
+set.seed(123)
+
+bootstrapify(iris, 10)
+```
+
+You can feed a `resampled_df` into `summarise()` or `group_modify()` to perform
+efficient bootstrapped computations.
+
+```{r summarise}
+iris %>%
+  bootstrapify(10) %>%
+  summarise(per_strap_mean = mean(Petal.Width))
+```
+
+The original data can be grouped as well, and the bootstraps will be created for each group.
+
+```{r summarise-by-group}
+iris %>%
+  group_by(Species) %>%
+  bootstrapify(10) %>%
+  summarise(per_strap_per_species_mean = mean(Petal.Width))
+```
+
+## Plotting bootstrapped results
+
+A fun example of using strapgod is to create bootstrapped visualizations quickly and easily for hypothetical outcome plots. 
+
+```{r non-bootstrap-plots, warning=FALSE, message=FALSE}
+set.seed(123)
+library(ggplot2)
+
+# without bootstrap
+mtcars %>%
+  ggplot(aes(hp, mpg)) + 
+  geom_smooth(se = FALSE) +
+  ylim(y = c(0, 40))
+```
+
+```{r bootstrap-plots, warning=FALSE, message=FALSE}
+# with bootstrap
+mtcars %>%
+  bootstrapify(10) %>%
+  collect() %>%
+  ggplot(aes(hp, mpg, group = .bootstrap)) + 
+  geom_smooth(se = FALSE) +
+  ylim(y = c(0, 40))
+```
+
+## In the wild
+
+- Claus Wilke has used strapgod to power some pieces of his [ungeviz](https://github.com/wilkelab/ungeviz) package for visualizing uncertainty.
+
+- You can watch Claus's [rstudio::conf 2019](https://resources.rstudio.com/rstudio-conf-2019/visualizing-uncertainty-with-hypothetical-outcomes-plots) talk to see ungeviz and strapgod in action.

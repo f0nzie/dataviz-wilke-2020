@@ -1,0 +1,10 @@
+^CRAN-RELEASE$
+^cran-comments\.md$
+^pkgdown$
+^_pkgdown\.yml$
+^docs$
+^codecov\.yml$
+^\.travis\.yml$
+^README\.Rmd$
+^strapgod\.Rproj$
+^\.Rproj\.user$

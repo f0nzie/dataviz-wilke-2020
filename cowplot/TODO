@@ -1,0 +1,13 @@
+Before 1.0 release:
+- Fix axis_canvas()
+- Add as_grob() function for gList
+- null devices should make temporary files and clean up after exit - may not be technically possible
+
+Things to fix or improve
+=============================
+- more regression tests are needed.
+- write vignette on themes
+
+Ideas for further development
+=============================
+- make a theme for individual plots and one for grouped plots (and one for faceted plots?), make sure that all default settings work well together.
