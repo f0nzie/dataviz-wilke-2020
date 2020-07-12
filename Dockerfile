@@ -1,6 +1,5 @@
 FROM rocker/rstudio:3.6.3
 
-
 RUN apt-get -y update \
  && apt-get -y install  \
     libxml2-dev \
@@ -78,8 +77,6 @@ COPY dviz.supp /home/rstudio/pkg/dviz.supp
 COPY ggtextures /home/rstudio/pkg/ggtextures
 COPY statebins /home/rstudio/pkg/statebins
 
-# COPY dviz.supp /home/rstudio/pkg/dviz.supp
-
 RUN Rscript -e "install.packages(c(\
   '/home/rstudio/pkg/colorspace', \
   '/home/rstudio/pkg/strapgod', \
@@ -90,14 +87,6 @@ RUN Rscript -e "install.packages(c(\
   '/home/rstudio/pkg/ggtextures', \
   '/home/rstudio/pkg/statebins' \
   ), repos = NULL, type='source')"
-
-# RUN Rscript -e "install.packages('/home/rstudio/pkg/colorspace', repos = NULL, type='source')"
-# RUN Rscript -e "install.packages('/home/rstudio/pkg/strapgod', repos = NULL, type='source')"
-# RUN Rscript -e "install.packages('/home/rstudio/pkg/ungeviz', repos = NULL, type='source')"
-# RUN Rscript -e "install.packages('/home/rstudio/pkg/cowplot', repos = NULL, type='source')"
-# RUN Rscript -e "install.packages('/home/rstudio/pkg/colorblindr', repos = NULL, type='source')"
-# RUN Rscript -e "install.packages('/home/rstudio/pkg/dviz.supp', repos = NULL, type='source')"
-# RUN Rscript -e "install.packages('/home/rstudio/pkg/ggtextures', repos = NULL, type='source')"
 
 
 RUN install2.r --error \  
