@@ -21,6 +21,18 @@ docker build -t fonzie/wilke:3.6.3 .
 docker run --rm -p 8787:8787 -v /home/msfz751/docker-share/wilke:/home/rstudio/share  -e USERID=$UID -e PASSWORD=wilke  fonzie/wilke:3.6.3
 ```
 
+or better:
+
+```
+docker run --rm -p 38787:8787 \
+    -v /home/msfz751/docker-share/wilke:/home/rstudio/share  \
+    -e USERID=$UID -e PASSWORD=wilke \
+     -v ${PWD}/dataviz-2020:/home/rstudio/book \
+    fonzie/wilke:3.6.3
+```
+
+> Note. There is a script `run_docker.sh` that simplifies this.
+
 
 ## Packages and dependencies
 
