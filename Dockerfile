@@ -7,35 +7,22 @@ RUN apt-get -y update \
     libz-dev
 
 # Linux: pre-requisites gor GDAL, rgdal, rgeos and units
+# Linux: pre-requisites for magick
 RUN apt-get install -y \
     libudunits2-dev \
     libgdal20 \
     libgdal-dev \
     libgeos-dev \ 
-    libproj-dev     
-
-# Linux: pre-requisites for magick
-RUN apt-get install -y \
+    libproj-dev \
     libmagick++-dev
 
 
 # Install R packages
-RUN install2.r --error \
+RUN install2.r --error --repo https://mran.microsoft.com/snapshot/2019-06-12 \
+    bookdown \
     egg \
     forcats \
     foreign \
-    magick \
-    maps \
-    maptools \
-    nlme \
-    plot3D \
-    rgdal \
-    rgeos \
-    sf \
-    units
-
-# Install R packages
-RUN install2.r --error \
     gapminder \
     ggrepel \
     ggridges \
@@ -47,38 +34,41 @@ RUN install2.r --error \
     gtable \ 
     hexbin \
     lubridate \
+    magick \
+    maps \
+    maptools \
+    nlme \
     nycflights13 \ 
+    plot3D \
+    rgdal \
+    rgeos \
     readr \
+    sf \
     treemapify \
     tidyverse \
-    bookdown
+    units
+
 
 # mvtnorm required by ungeviz
 # rstanarm required by dviz.supp
-# install statebins from source
-RUN install2.r --error \
-  rworldmap \
-  lwgeom \
-  mvtnorm \
-  rstanarm
-
-RUN install2.r --error \
+# install statebins from source 
+RUN install2.r --error  --repo https://mran.microsoft.com/snapshot/2019-06-12 \  
+  emmeans \
   ggmap \
   geofacet \
-  ggspatial
-  
-RUN install2.r --error \  
-  emmeans \
-  lobstr \
+  ggspatial \
   gganimate \
+  lwgeom \
+  mvtnorm \
+  rworldmap \
   transformr
 
+RUN install2.r --error  --repo https://mran.microsoft.com/snapshot/2019-08-12 \  
+  rstanarm
 
-# copy colorspace package source folder
-#  /home/rstudio/pkg/strapgod
-# /home/rstudio/pkg/ungeviz
-# /home/rstudio/pkg/cowplot
-#  /home/rstudio/pkg/colorblindr
+RUN install2.r --error  --repo https://mran.microsoft.com/snapshot/2019-12-12 \  
+  lobstr 
+
 COPY colorspace /home/rstudio/pkg/colorspace
 COPY strapgod /home/rstudio/pkg/strapgod
 COPY ungeviz /home/rstudio/pkg/ungeviz
