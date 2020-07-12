@@ -1,0 +1,374 @@
+```{r echo = FALSE, message = FALSE}
+# run setup script
+source("_common.R")
+```
+
+# Common pitfalls of color use {#color-pitfalls}
+
+Color can be an incredibly effective tool to enhance data visualizations. At the same time, poor color choices can ruin an otherwise excellent visualization. Color needs to be applied to serve a purpose, it must be clear, and it must not distract.
+
+## Encoding too much or irrelevant information
+
+One common mistake is trying to give color a job that is too big for it to handle, by encoding too many different items in different colors. As an example, consider Figure \@ref(fig:popgrowth-vs-popsize-colored). It shows population growth versus population size for all 50 U.S. states and the District of Columbia. I have attempted to identify each state by giving it its own color. However, the result is not very useful. Even though we can guess which state is which by looking at the colored points in the plot and in the legend, it takes a lot of effort to go back and forth between the two to try to match them up. There are simply too many different colors, and many of them are quite similar to each other. Even if with a lot of effort we can figure out exactly which state is which, this visualization defeats the purpose of coloring. We should use color to enhance figures and make them easier to read, not to obscure the data by creating visual puzzles.
+
+(ref:popgrowth-vs-popsize-colored) Population growth from 2000 to 2010 versus population size in 2000, for all 50 U.S. states and the District of Columbia. Every state is marked in a different color. Because there are so many states, it is very difficult to match the colors in the legend to the dots in the scatter plot. Data source: U.S. Census Bureau
+
+```{r popgrowth-vs-popsize-colored, fig.width = 6, fig.asp = 2*0.618, fig.cap = '(ref:popgrowth-vs-popsize-colored)'}
+
+popgrowth_df <- left_join(US_census, US_regions) %>%
+    group_by(region, division, state) %>%
+    summarize(pop2000 = sum(pop2000, na.rm = TRUE),
+              pop2010 = sum(pop2010, na.rm = TRUE),
+              popgrowth = (pop2010-pop2000)/pop2000,
+              area = sum(area)) %>%
+    arrange(popgrowth) %>%
+    ungroup() %>%
+    mutate(state = factor(state, levels = state),
+           region = factor(region, levels = c("West", "South", "Midwest", "Northeast")))
+
+
+colors <- c(rainbow_hcl(8, l = 35, c = 25, start = 0, end = 315),
+            rainbow_hcl(8, l = 45, c = 34, start = -10, end = 305),
+            rainbow_hcl(9, l = 55, c = 42, start = -20, end = 300),
+            rainbow_hcl(9, l = 65, c = 50, start = -30, end = 290),
+            rainbow_hcl(9, l = 75, c = 55, start = -40, end = 280),
+            rainbow_hcl(8, l = 85, c = 32, start = -50, end = 265))
+
+#colors <- sample(colors, 51)
+
+p_base <- ggplot(popgrowth_df, aes(x = pop2000, y = popgrowth, color = as.character(state))) +
+  geom_point(size = 4) +
+  scale_x_log10(labels = label_log10) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_color_manual(values = colors, name = "state") +
+  xlab("population size in 2000") +
+  ylab("population growth\n2000 to 2010   ") +
+  theme_dviz_grid() +
+  theme(
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 12),
+    legend.justification = "center",
+    legend.box.margin = margin(14, 0, 28, 0),
+    legend.spacing.y = unit(2, "pt"),
+    plot.margin = margin(14, 14, 14, 1.5)
+  )
+
+p_comb <- plot_grid(p_base + theme(legend.position = "none"), get_legend(p_base), ncol = 1)
+stamp_bad(p_comb)
+```
+
+As a rule of thumb, qualitative color scales work best when there are three to five different categories that need to be colored. Once we reach eight to ten different categories or more, the task of matching colors to categories becomes too burdensome to be useful, even if the colors remain sufficiently different to be distinguishable in principle. For the dataset of Figure \@ref(fig:popgrowth-vs-popsize-colored), it is probably best to use color only to indicate the geographic region of each state and to identify individual states by direct labeling, i.e., by placing appropriate text labels adjacent to the data points (Figure \@ref(fig:popgrowth-vs-popsize-bw)). Even though we cannot label every individual state without making the figure too crowded, direct labeling is the right choice for this figure. In general, for figures such as this one, we don't need to label every single data point. It is sufficient to label a representative subset, for example a set of states we specifically want to call out in the text that will accompany the figure. We always have the option to also provide the underlying data as a table if we want to make sure the reader has access to it in its entirety.
+
+(ref:popgrowth-vs-popsize-bw) Population growth from 2000 to 2010 versus population size in 2000. In contrast to Figure \@ref(fig:popgrowth-vs-popsize-colored), I have now colored states by region and have directly labeled a subset of states. The majority of states have been left unlabeled to keep the figure from overcrowding. Data source: U.S. Census Bureau
+
+```{r popgrowth-vs-popsize-bw, fig.width = 5.5*6/4.2, fig.cap = '(ref:popgrowth-vs-popsize-bw)'}
+library(ggrepel)
+
+set.seed(7586)
+region_colors <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442")
+
+labeled_states <- c(
+  "Alaska", "Arizona", "California", "Florida", "Wisconsin", 
+  "Louisiana", "Nevada", "Michigan", "Montana", "New Mexico",
+  "Pennsylvania", "New York", "Oregon", "Rhode Island",
+  "Tennessee", "Texas", "Utah", "Vermont"
+)
+
+df_repel <- select(popgrowth_df, x = pop2000, y = popgrowth, state) %>%
+  mutate(label = ifelse(state %in% labeled_states, as.character(state), ""))
+
+ggplot(popgrowth_df, aes(x = pop2000, y = popgrowth, color = region, fill = region)) +
+  geom_text_repel(
+    data = df_repel,
+    aes(x, y, label = label),
+    segment.alpha = 0.5, point.padding = 0.25,
+    box.padding = .8,
+    force = 1,
+    min.segment.length = 0.1,
+    family = dviz_font_family,
+    size = 11/.pt, inherit.aes = FALSE
+  ) +
+  geom_point(size = 3.5, color = "white") +
+  geom_point(size = 2.5, shape = 21) +
+  scale_x_log10(labels = label_log10) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(values = region_colors) +
+  scale_color_manual(values = darken(region_colors, .3)) +
+  xlab("population size in 2000") +
+  ylab("population growth, 2000 to 2010") +
+  theme_dviz_grid()
+```
+
+
+```{block type='rmdtip', echo=TRUE}
+Use direct labeling instead of colors when you need to distinguish between more than about eight categorical items.
+```
+
+A second common problem is coloring for the sake of coloring, without having a clear purpose for the colors. As an example, consider Figure \@ref(fig:popgrowth-US-rainbow), which is a variation of Figure \@ref(fig:popgrowth-US). However, now instead of coloring the bars by geographic regions, I have given each bar its own color, so that in aggregate the bars create a rainbow effect. This may look like an interesting visual effect, but it is not creating any new insight into the data or making the figure easier to read.
+
+(ref:popgrowth-US-rainbow) Population growth in the U.S. from 2000 to 2010. The rainbow coloring of states serves no purpose and is distracting. Furthermore, the colors are overly saturated. Data source: U.S. Census Bureau
+
+```{r popgrowth-US-rainbow, fig.width = 6, fig.asp = 1.2, fig.cap = '(ref:popgrowth-US-rainbow)'}
+popgrowth_bars_rainbow <- ggplot(popgrowth_df, aes(x = state, y = 100*popgrowth, fill = state)) + 
+  geom_col() + 
+  scale_y_continuous(
+    limits = c(-.6, 37.5), expand = c(0, 0),
+    labels = scales::percent_format(accuracy = 1, scale = 1),
+    name = "population growth, 2000 to 2010"
+  ) +
+  scale_fill_hue(c = 140, l = 55) +
+  coord_flip() + 
+  theme_dviz_vgrid(12, rel_small = 1) +
+  theme(axis.title.y = element_blank(),
+        axis.line.y = element_blank(),
+        axis.ticks.length = unit(0, "pt"),
+        axis.text.y = element_text(size = 10),
+        legend.position = "none",
+        plot.margin = margin(18, 1.5, 3, 1.5))
+
+stamp_ugly(popgrowth_bars_rainbow)
+```
+
+Besides the gratuitous use of different colors, Figure \@ref(fig:popgrowth-US-rainbow) has a second color-related problem: The chosen colors are too saturated and intense. This color intensity makes the figure difficult to look at. For example, it is difficult to read the names of the states without having our eyes drawn to the large, strongly colored areas right next to the state names. Similarly, it is difficult to compare the endpoints of the bars to the underlying grid lines.
+
+```{block type='rmdtip', echo=TRUE}
+Avoid large filled areas of overly saturated colors. They make it difficult for your reader to carefully inspect your figure.
+```
+
+
+## Using non-monotonic color scales to encode data values
+
+In Chapter \@ref(color-basics), I listed two critical conditions for designing sequential color scales that can represent data values: The colors need to clearly indicate which data values are larger or smaller than which other ones, and the differences between colors need to visualize the corresponding differences between data values. Unfortunately, several existing color scales---including very popular ones---violate one or both of these conditions. The most popular such scale is the rainbow scale (Figure \@ref(fig:rainbow-desaturated)). It runs through all possible colors in the color spectrum. This means the scale is effectively circular; the colors at the beginning and the end are nearly the same (dark red). If these two colors end up next to each other in a plot, we do not instinctively perceive them as representing data values that are maximally apart. In addition, the scale is highly non-monotonic. It has regions where colors change very slowly and others when colors change rapidly. This lack of monotonicity becomes particularly apparent if we look at the color scale in grayscale (Figure \@ref(fig:rainbow-desaturated)). The scale goes from medium dark to light to very dark and back to medium dark, and there are large stretches where lightness changes very little followed by relatively narrow stretches with large changes in lightness. 
+
+(ref:rainbow-desaturated) The rainbow colorscale is highly non-monotonic. This becomes clearly visible by converting the colors to gray values. From left to right, the scale goes from moderately dark to light to very dark and back to moderately dark. In addition, the changes in lightness are very non-uniform. The lightest part of the scale (corresponding to the colors yellow, light green, and cyan) takes up almost a third of the entire scale while the darkest part (corresponding to dark blue) is concentrated in a narrow region of the scale.
+
+```{r rainbow-desaturated, fig.width=5*6/4.2, fig.asp=2*.14, fig.cap = '(ref:rainbow-desaturated)'}
+p1 <- gg_color_gradient(
+  plot_margin = margin(17.5, 1, 0, 1),
+  ymargin = 0.05
+) + 
+  scale_fill_gradientn(colors = rainbow(10))
+
+p2 <- gg_color_gradient(
+  plot_margin = margin(17.5, 1, 0, 1),
+  ymargin = 0.05
+) + 
+  scale_fill_gradientn(colors = desaturate(rainbow(10)))
+
+plot_grid(
+  p1, NULL, p2,
+  ncol = 1,
+  rel_heights = c(0.9, 0.1, 0.9),
+  labels = c("rainbow scale", "", "rainbow converted to grayscale"),
+  label_x = 0, label_y = 0.96,
+  label_size = 14
+)
+```
+
+In a visualization of actual data, the rainbow scale tends to obscure data features and/or highlight arbitrary aspects of the data (Figure \@ref(fig:map-Texas-rainbow)). As an aside, the colors in the rainbow scale are also overly saturated. Looking at Figure \@ref(fig:map-Texas-rainbow) for any extended period of time can be quite uncomfortable.
+
+
+(ref:map-Texas-rainbow) Percentage of people identifying as white in Texas counties. The rainbow color scale is not an appropriate scale to visualize continuous data values, because it tends to place emphasis on arbitrary features of the data. Here, it emphasizes counties in which approximately 75% of the population identify as white. Data source: 2010 Decennial U.S. Census
+
+```{r map-Texas-rainbow, fig.width = 6, fig.asp = 0.75, fig.cap = '(ref:map-Texas-rainbow)'}
+library(sf)
+
+# EPSG:3083
+# NAD83 / Texas Centric Albers Equal Area
+# http://spatialreference.org/ref/epsg/3083/
+texas_crs <- "+proj=aea +lat_1=27.5 +lat_2=35 +lat_0=18 +lon_0=-100 +x_0=1500000 +y_0=6000000 +ellps=GRS80 +datum=NAD83 +units=m +no_defs"
+
+# -110, -93.5 transformed using texas_crs
+texas_xlim <- c(558298.7, 2112587)
+
+# we reuse the geometries from texas_income
+texas_race %>% st_sf() %>%
+  st_transform(crs = texas_crs) %>%
+  filter(variable == "White") %>%
+  ggplot(aes(fill = pct)) +
+    geom_sf(color = "white") +
+    coord_sf(xlim = texas_xlim, datum = NA) + 
+    theme_dviz_map() +
+    scale_fill_gradientn(
+      colors = rainbow(10),
+      limits = c(0, 100),
+      breaks = 25*(0:4),
+      labels = c("0% ", "25%", "50%", "75%", " 100%"),
+      name = "percent identifying as white",
+      guide = guide_colorbar(
+        direction = "horizontal",
+        label.position = "bottom",
+        title.position = "top",
+        ticks = FALSE,
+        barwidth = grid::unit(3.0, "in"),
+        barheight = grid::unit(0.2, "in")
+      )
+    ) +
+    theme(
+      legend.title.align = 0.5,
+      legend.text.align = 0.5,
+      legend.justification = c(0, 0),
+      legend.position = c(0, 0.1)
+    ) -> texas_rainbow
+
+stamp_bad(texas_rainbow)
+```
+
+
+## Not designing for color-vision deficiency
+
+Whenever we are choosing colors for a visualization, we need to keep in mind that a good proportion of our readers may have some form of color-vision deficiency (i.e., are colorblind). These readers may not be able to distinguish colors that look clearly different to most other people. People with impaired color vision are not literally unable to see any colors, however. Instead, they will typically have difficulty to distinguish certain types of colors, for example red and green (red--green color-vision deficiency) or blue and green (blue--yellow color-vision deficiency). The technical terms for these deficiencies are deuteranomaly/deuteranopia and protanomaly/protanopia for the red--green variant (where people have difficulty perceiving either green or red, respectively) and tritanomaly/tritanopia for the blue--yellow variant (where people have difficulty perceiving blue). The terms ending in "anomaly" refer to some impairment in the perception of the respective color, and the terms ending in "anopia" refer to complete absence of perception of that color. Approximately 8% of males and 0.5% of females suffer from some sort of color-vision deficiency, and deuteranomaly is the most common form whereas tritanomaly is relatively rare.
+
+As discussed in Chapter \@ref(color-basics), there are three fundamental types of color scales used in data visualization: sequential scales, diverging scales, and qualitative scales. Of these three, sequential scales will generally not cause any problems for people with color-vision deficiency (cvd), since a properly designed sequential scale should present a continuous gradient from dark to light colors. Figure \@ref(fig:heat-cvd-sim) shows the Heat scale from Figure \@ref(fig:sequential-scales) in simulated versions of deuteranomaly, protanomaly, and tritanomaly. While none of these cvd-simulated scales look like the original, they all present a clear gradient from dark to light and they all work well to convey the magnitude of a data value.
+
+(ref:heat-cvd-sim) Color-vision deficiency (cvd) simulation of the sequential color scale Heat, which runs from dark red to light yellow. From left to right and top to bottom, we see the original scale and the scale as seen under deuteranomaly, protanomaly, and tritanomaly simulations. Even though the specific colors look different under the three types of cvd, in each case we can see a clear gradient from dark to light. Therefore, this color scale is safe to use for cvd.
+
+```{r heat-cvd-sim, fig.width = 5*6/4.2, fig.asp = 2*.14, fig.cap = '(ref:heat-cvd-sim)'}
+grad_heat <- gg_color_gradient(
+  plot_margin = margin(17.5, 1, 0, 1),
+  ymargin = 0.05
+) + 
+  scale_fill_continuous_sequential("Heat", rev = FALSE)
+
+cvd_sim(grad_heat, label_y = 0.96)
+```
+
+Things become more complicated for diverging scales, because popular color contrasts can become indistinguishable under cvd. In particular, the colors red and green provide about the strongest contrast for people with normal color vision but become nearly indistinguishable for deutans (people with deuteranomaly) or protans (people with protanomaly) (Figure \@ref(fig:red-green-cvd-sim)). Similarly, blue-green contrasts are visible for deutans and protans but become indistinguishable for tritans (people with tritanomaly) (Figure \@ref(fig:blue-green-cvd-sim)).
+
+(ref:red-green-cvd-sim) A red--green contrast becomes indistinguishable under red--green cvd (deuteranomaly or protanomaly).
+
+```{r red-green-cvd-sim, fig.width = 5*6/4.2, fig.asp = 2*.14, fig.cap = '(ref:red-green-cvd-sim)'}
+cols <- scales::colour_ramp(c("#FF1B1B", "#F9F1CE", high = "#057905"))(seq(0, 1, .25))
+
+grad_red_green <- gg_color_swatches(
+  n = 5,
+  plot_margin = margin(17.5, 1, 0, 1),
+  xmargin = 0.1,
+  ymargin = 0.05
+) + 
+  scale_fill_manual(values = cols)
+
+cvd_sim(grad_red_green, label_y = 0.96)
+```
+
+(ref:blue-green-cvd-sim) A blue--green contrast becomes indistinguishable under blue--yellow cvd (tritanomaly).
+
+```{r blue-green-cvd-sim, fig.width = 5*6/4.2, fig.asp = 2*.14, fig.cap = '(ref:blue-green-cvd-sim)'}
+cols <- scales::colour_ramp(c("#284F9B", "grey90", high = "#056D05"))(seq(0, 1, .25))
+
+grad_red_green <- gg_color_swatches(
+  n = 5,
+  plot_margin = margin(17.5, 1, 0, 1),
+  xmargin = 0.1,
+  ymargin = 0.05
+) + 
+  scale_fill_manual(values = cols)
+
+cvd_sim(grad_red_green, label_y = 0.96)
+```
+
+With these examples, it might seem that it is nearly impossible to find two contrasting colors that are safe under all forms of cvd. However, the situation is not that dire. It is often possible to make slight modifications to the colors such that they have the desired character while also being safe for cvd. For example, the ColorBrewer PiYG (pink to yellow-green) scale from Figure \@ref(fig:diverging-scales) looks red--green to people with normal color vision yet remains distinguishable for people with cvd (Figure \@ref(fig:PiYG-cvd-sim)).
+
+(ref:PiYG-cvd-sim) The ColorBrewer PiYG (pink to yellow-green) scale from Figure \@ref(fig:diverging-scales) looks like a red--green contrast to people with regular color vision but works for all forms of color-vision deficiency. It works because the reddish color is actually pink (a mix of red and blue) while the greenish color also contains yellow. The difference in the blue component between the two colors can be picked up even by deutans or protans, and the difference in the red component can be picked up by tritans.
+
+```{r PiYG-cvd-sim, fig.width = 5*6/4.2, fig.asp = 2*.14, fig.cap = '(ref:PiYG-cvd-sim)'}
+grad_red_green <- gg_color_swatches(
+  n = 5,
+  plot_margin = margin(17.5, 1, 0, 1),
+  xmargin = 0.1,
+  ymargin = 0.05
+) + 
+  scale_fill_brewer(type = "div", palette = "PiYG")
+
+cvd_sim(grad_red_green, label_y = 0.96)
+```
+
+Things are most complicated for qualitative scales, because there we need many different colors and they all need to be distinguishable from each other under all forms of cvd. My preferred qualitative color scale, which I use extensively throughout this book, was developed specifically to address this challenge (Figure \@ref(fig:palette-Okabe-Ito)). By providing eight different colors, the palette works for nearly any scenario with discrete colors. As discussed at the beginning of this chapter, you should probably not color-code more than eight different items in a plot anyways.
+
+(ref:palette-Okabe-Ito) Qualitative color palette for all color-vision deficiencies [@Okabe-Ito-CUD]. The alphanumeric codes represent the colors in RGB space, encoded as hexadecimals. In many plot libraries and image-manipulation programs, you can just enter these codes directly. If your software does not take hexadecimals directly, you can also use the values in Table \@ref(tab:color-codes).
+
+```{r palette-Okabe-Ito, fig.width=5.5*6/4.2, fig.asp=.14, fig.cap = '(ref:palette-Okabe-Ito)'}
+# from: http://jfly.iam.u-tokyo.ac.jp/color/
+cbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#000000")
+
+palette_plot(cbPalette, label_size = 5, label_family = dviz_font_family) +
+  theme(plot.margin = margin(3, 1, 3, 1))
+```
+
+
+Table: (\#tab:color-codes) Colorblind-friendly color scale, developed by @Okabe-Ito-CUD. 
+
+Name            Hex code     Hue     C, M, Y, K (%)   R, G, B (0-255)   R, G, B (%)
+--------------  ------------ ------- ---------------- ----------------- ------------
+        orange       #E69F00     41° 0, 50, 100, 0    230, 159, 0       90, 60, 0
+      sky blue       #56B4E9    202° 80, 0, 0, 0      86, 180, 233      35, 70, 90
+  bluish green       #009E73    164° 97, 0, 75, 0     0, 158, 115       0, 60, 50
+        yellow       #F0E442     56° 10, 5, 90, 0     240, 228, 66      95, 90, 25
+          blue       #0072B2    202° 100, 50, 0, 0    0, 114, 178       0, 45, 70
+     vermilion       #D55E00     27° 0, 80, 100, 0    213, 94, 0        80, 40, 0
+reddish purple       #CC79A7    326° 10, 70, 0, 0     204, 121, 167     80, 60, 70
+         black       #000000      -  0, 0, 0, 100     0, 0, 0           0, 0, 0
+ 
+While there are several good, cvd-safe color scales readily available, we need to recognize that they are no magic bullets. It is very possible to use a cvd-safe scale and yet produce a figure a person with cvd cannot decipher. One critical parameter is the size of the colored graphical elements. Colors are much easier to distinguish when they are applied to large areas than to small ones or thin lines [@Stone_et_al_2014]. And this effect is exacerbated under cvd (Figure \@ref(fig:colors-thin-lines)). In addition to the various color-design considerations discussed in this chapter and in Chapter \@ref(color-basics), I recommend to view color figures under cvd simulations to get a sense of what they may look like for a person with cvd. There are several online services and desktop apps available that allow users to run arbitrary figures through a cvd simulation.
+
+(ref:colors-thin-lines) Colored elements become difficult to distinguish at small sizes. The top left panel (labeled "original") shows four rectangles, four thick lines, four thin lines, and four groups of points, all colored in the same four colors. We can see that the colors become more difficult to distinguish the smaller or thinner the visual elements are. This problem becomes exacerbated in the cvd simulations, where the colors are already more difficult to distinguish even for the large graphical elements.
+
+```{r colors-thin-lines, fig.width = 5*6/4.2, fig.asp = 0.8, fig.cap = '(ref:colors-thin-lines)'}
+tiles_df <- data.frame(
+  x = c(1, 2, 1, 2),
+  y = c(1.75, 1.75, 1.25, 1.25),
+  type = c("A", "B", "C", "D")
+)
+
+segments_df <- data.frame(
+  x0 = rep(0.55, 4),
+  x1 = rep(2.45, 4),
+  y0 = seq(.9, .6, -.1),
+  y1 = seq(.9, .6, -.1),
+  type = c("A", "B", "C", "D")
+)
+
+points_df <- data.frame(
+  x = rep(1.58 + .28*(0:3), 4),
+  y = rep(seq(.4, .1, -.1), each = 4),
+  size = rep(c(3, 2, 1, .5), 4),
+  type = rep(c("A", "B", "C", "D"), each = 4)
+)
+
+p <- ggplot() + 
+  geom_tile(data = tiles_df, aes(x, y, fill = type), width = 0.9, height = 0.45) +
+  geom_segment(
+    data = segments_df,
+    aes(x = x0, xend = x1, y = y0, yend = y1, color = type),
+    size = 1.5
+  ) +
+  geom_segment(
+    data = segments_df,
+    aes(x = x0, xend = x0 + .9, y = y0 - .5, yend = y1 - .5, color = type),
+    size = .5
+  ) +
+  geom_point(data = points_df, aes(x, y, color = type, size = size)) +
+  scale_fill_OkabeIto(order = c(1, 4, 2, 3)) +
+  scale_color_OkabeIto(order = c(1, 4, 2, 3)) +
+  scale_size_identity() +
+  coord_cartesian(xlim = c(0.55, 2.45), ylim = c(0.05, 2.05), expand = FALSE) +
+  theme_nothing() +
+  theme(plot.margin = margin(14, 1, 0, 1))
+
+cvd_sim(p, label_y = 0.97)
+```
+
+```{block type='rmdtip', echo=TRUE}
+To make sure your figures work for people with cvd, don't just rely on specific color scales. Instead, test your figures in a cvd simulator.
+```
+
+
+```{r eval = FALSE, include = FALSE} 
+## Notes, entered as R comment so as to not appear in the printed output
+
+#Some useful posts on color-blind friendly palettes:
+#
+#- [Color Universal Design by Okabe and Ito](http://jfly.iam.u-tokyo.ac.jp/color/)
+#- [Gradient-based color palettes](https://blog.graphiq.com/finding-the-right-color-palettes-for-data-visualizations-fcd4e707a283)
+#- [Avoid equidistant HSV colors](https://www.vis4.net/blog/posts/avoid-equidistant-hsv-colors/)
+```

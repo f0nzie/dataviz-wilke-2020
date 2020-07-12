@@ -1,0 +1,957 @@
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+# run setup script
+source("_common.R")
+
+library(forcats)
+library(ggmap)
+library(statebins)
+library(sf)
+library(lubridate)
+library(geofacet)
+```
+
+# Visualizing geospatial data {#geospatial-data}
+
+Many datasets contain information linked to locations in the physical world. For example, in an ecological study, a dataset may list where specific plants or animals have been found. Similarly, in a socioeconomic or political context, a dataset may contain information about where people with specific attributes (such as income, age, or educational attainment) live, or where man-made objects (e.g., bridges, roads, buildings) have been constructed. In all these cases, it can be helpful to visualize the data in their proper geospatial context, i.e., to show the data on a realistic map or alternatively as a map-like diagram.
+
+Maps tend to be intuitive to readers but they can be challenging to design. We need to think about concepts such as map projections and whether for our specific application the accurate representation of angles or areas is more critical. A common mapping technique, the *choropleth map,* consists of representing data values as differently colored spatial areas. Choropleth maps can at times be very useful and at other times highly misleading. As an alternative, we can construct map-like diagrams called *cartograms,* which may purposefully distort map areas or represent them in stylized form, for example as equal-sized squares.
+
+
+## Projections
+
+The earth is approximately a sphere (Figure \@ref(fig:world-orthographic)), and more precisely an oblate spheroid that is slightly flattened along its axis of rotation. The two locations where the axis of rotation intersects with the spheroid are called the *poles* (north pole and south pole). We separate the spheroid into two hemispheres, the northern and the southern hemisphere, by drawing a line equidistant to both poles around the spheroid. This line is called the *equator.* To uniquely specify a location on the earth, we need three pieces of information: where we are located along the direction of the equator (the longitude), how close we are to either pole when moving perpendicular to the equator (the latitude), and how far we are from the earth's center (the altitude). Longitude, latitude, and altitude are specified relative to a reference system called the *datum.* The datum specifies properties such as the shape and size of the earth, as well as the location of zero longitude, latitude, and altitude. One widely used datum is the World Geodetic System (WGS) 84, which is used by the Global Positioning System (GPS).
+
+(ref:world-orthographic) Orthographic projection of the world, showing Europe and Northern Africa as they would be visible from space. The lines emanating from the north pole and running south are called *meridians*, and the lines running orthogonal to the meridians are called *parallels.* All meridians have the same length but parallels become shorter the closer we are to either pole.
+
+```{r world-orthographic, fig.width = 5.5, fig.asp = 1, fig.cap = '(ref:world-orthographic)'}
+intersperse <- function(x1, x2) {
+  x <- numeric(0)
+  for (i in seq_along(x1)) {
+    x <- c(x, x1[i], x2[i], NA)
+  }
+  x
+}
+
+cenlat <- 40
+cenlong <- 15
+
+ocean_col <- "#56B4E950"
+land_col <- "#E69F00B0"
+graticule_col <- "grey30"
+line_col <- "black"
+
+draw_ocean(cenlat, cenlong, col = ocean_col, line_col = graticule_col, lwd = 0.25)
+draw_land(map_polys$world, cenlat, cenlong, col = land_col, line_col = line_col, lwd = 0.5)
+
+p1 <- dviz.supp::orthproj(
+  lat = c(0.5, 66, 63, 54, 30.5, 44.5, 59.5),
+  long = c(-25, -29, 1, 31, -22, -22, -22),
+  cenlat = cenlat,
+  cenlong = cenlong
+)
+
+p2 <- dviz.supp::orthproj(
+  lat = c(6, 65, 65, 65, 35, 35, 35),
+  long = c(-28, 52, 52, 52, -35, -35, -35),
+  cenlat = cenlat,
+  cenlong = cenlong
+)
+
+lines(x = intersperse(p1$x, p2$x), y = intersperse(p1$y, p2$y))
+par(family = dviz_font_family, ps = 12)
+text(
+  x = c(0.03, p2$x[1], p2$x[7], p2$x[2]),
+  y = c(0.765, p2$y[1], p2$y[7], p2$y[2]),
+  labels = c("north pole", "equator", "parallels", "meridians"),
+  pos = c(3, 3, 2, 4),
+  offset = .2
+)
+```
+While altitude is an important quantity in many geospatial applications, when visualizing geospatial data in the form of maps we are primarily concerned with the other two dimensions, longitude and latitude. Both longitude and latitude are angles, expressed in degrees. Degrees longitude measure how far east or west a location lies. Lines of equal longitude are referred to as *meridians*, and all meridians terminate at the two poles (Figure \@ref(fig:world-orthographic)). The prime meridian, corresponding to 0&deg; longitude, runs through the village of Greenwich in the United Kingdom. The meridian opposite to the prime meridian lies at 180&deg; longitude (also referred to as 180&deg;E), which is equivalent to -180&deg; longitude (also referred to as 180&deg;W), near the international date line. Degrees latitude measure how far north or south a location lies. The equator corresponds to 0&deg; latitude, the north pole corresponds to 90&deg; latitude (also referred to as 90&deg;N), and the south pole corresponds to -90&deg; latitude (also referred to as 90&deg;S). Lines of equal latitude are referred to as *parallels*, since they run parallel to the equator.  All meridians have the same length, corresponding to half of a great circle around the globe, whereas the length of parallels depends on their latitude (Figure \@ref(fig:world-orthographic)). The longest parallel is the equator, at 0&deg; latitude, and the shortest parallels lie at the north and south poles, 90&deg;N and 90&deg;S, and have length zero.
+
+The challenge in map-making is that we need to take the spherical surface of the earth and flatten it out so we can display it on a map. This process, called *projection,* necessarily introduces distortions, because a curved surface cannot be projected exactly onto a flat surface. Specifically, the projection can preserve either angles or areas but not both. A projection that does the former is called *conformal* and a projection that does the latter is called *equal-area*. Other projections may preserve neither angles nor areas but instead preserve other quantities of interest, such as distances to some reference point or line. Finally, some projections attempt to strike a compromise between preserving angles and areas. These compromise projections are frequently used to display the entire world in an aesthetically pleasing manner, and they accept some amount of both angular and area distortion (Figure \@ref(fig:worldmap-four-projections)). To systematize and keep track of different ways of projecting parts or all of the earth for specific maps, various standards bodies and organizations, such as the EPSG (European Petroleum Survey Group) or the ESRI (Environmental Systems Research Institute), maintain registries of projections. For example, EPSG:4326 represents unprojected longitude and latitude values in the WGS 84 coordinate system used by GPS. Several websites provide convenient access to these registered projections, including http://spatialreference.org/ and https://epsg.io/.
+
+One of the earliest map projections in use, the Mercator projection, was developed in the 16th century for nautical navigation. It is a conformal projection that accurately represents shapes but introduces severe area distortions near the poles (Figure \@ref(fig:world-mercator)). The Mercator projection maps the globe onto a cylinder and then unrolls the cylinder to arrive at a rectangular map. Meridians in this projection are evenly spaced vertical lines, whereas parallels are horizontal lines whose spacing increases the further we move away from the equator (Figure \@ref(fig:world-mercator)). The spacing between parallels increases in proportion to the extent to which they have to be stretched closer to the poles to keep meridians perfectly vertical.
+
+(ref:world-mercator) Mercator projection of the world. In this projection, parallels are straight horizontal lines and meridians are straight vertical lines. It is a conformal projection preserving local angles, but it introduces severe distortions in areas near the poles. For example, Greenland appears to be bigger than Africa in this projection, when in reality Africa is fourteen times bigger than Greenland (see Figures \@ref(fig:world-orthographic) and \@ref(fig:world-goode)).
+
+```{r world-mercator, fig.width = 5, fig.asp = 0.85, fig.cap = '(ref:world-mercator)'}
+world_sf <- sf::st_as_sf(rworldmap::getMap(resolution = "low"))
+
+crs_longlat <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+
+crs_mercator <- "+proj=merc"
+
+# calculate bounding box in transformed coordinates
+mercator_bbox <- 
+  rbind(c(-180, -85), c(180, 85)) %>%
+  st_multipoint() %>%
+  st_sfc(
+    crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+  ) %>% 
+  st_transform(crs = crs_mercator)
+
+ggplot(world_sf) + 
+  geom_sf(fill = "#E69F00B0", color = "black", size = 0.5/.pt) + 
+  scale_x_continuous(name = "longitude", breaks = seq(-120, 120, by = 60)) +
+  scale_y_continuous(name = "latitude", breaks = seq(-80, 80, by = 20)) +
+  coord_sf(
+    xlim = mercator_bbox[[1]][, 1],
+    ylim = mercator_bbox[[1]][, 2],
+    expand = FALSE,
+    crs = crs_mercator
+  ) + 
+  theme_dviz_grid(font_size = 12, rel_small = 1) +
+  theme(
+    panel.background = element_rect(fill = "#56B4E950", color = "#56B4E950"),
+    panel.grid.major = element_line(color = "gray30", size = 0.25),
+    axis.ticks = element_line(color = "gray30", size = 0.5/.pt)
+  )
+```
+
+Because of the severe area distortions it produces, the Mercator projection has fallen out of favor for maps of the entire world. However, variants of this projection continue to live on. For example, the transverse Mercator projection is routinely used for large-scale maps that show moderately small areas (spanning less than a few degrees in longitude) at large magnification. Another variant, the web Mercator projection, was introduced by Google for Google Maps and is used by several online mapping applications. 
+
+A whole-world projection that is perfectly area-preserving is the Goode homolosine (Figure \@ref(fig:world-goode)). It is usually shown in its interrupted form, which has one cut in the northern hemisphere and three cuts in the southern hemisphere, carefully chosen so they don't interrupt major land masses (Figure \@ref(fig:world-goode)). The cuts allow the projection to both preserve areas and approximately preserve angles, at the cost of non-contiguous oceans, a cut through the middle of Greenland, and several cuts through Antarctica. While the interrupted Goode homolosine has an unusual aesthetic and a strange name, it is a good choice for mapping applications that require accurate reproduction of areas on a global scale.
+
+(ref:world-goode) Interrupted Goode homolosine projection of the world. This projection accurately preserves areas while minimizing angular distortions, at the cost of showing oceans and some land masses (Greenland, Antarctica) in a non-contiguous way.
+
+```{r world-goode, fig.width = 5*6/4.2, fig.asp = 0.45, fig.cap = '(ref:world-goode)'}
+crs_goode <- "+proj=igh"
+
+# projection outline in long-lat coordinates
+lats <- c(
+  90:-90, # right side down
+  -90:0, 0:-90, # third cut bottom
+  -90:0, 0:-90, # second cut bottom
+  -90:0, 0:-90, # first cut bottom
+  -90:90, # left side up
+  90:0, 0:90, # cut top
+  90 # close
+)
+longs <- c(
+  rep(180, 181), # right side down
+  rep(c(80.01, 79.99), each = 91), # third cut bottom
+  rep(c(-19.99, -20.01), each = 91), # second cut bottom
+  rep(c(-99.99, -100.01), each = 91), # first cut bottom
+  rep(-180, 181), # left side up
+  rep(c(-40.01, -39.99), each = 91), # cut top
+  180 # close
+)
+
+goode_outline <- 
+  list(cbind(longs, lats)) %>%
+  st_polygon() %>%
+  st_sfc(
+    crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+  ) %>% 
+  st_transform(crs = crs_goode)
+
+# bounding box in transformed coordinates
+xlim <- c(-21945470, 21963330)
+ylim <- c(-9538022, 9266738)
+goode_bbox <- 
+  list(
+    cbind(
+      c(xlim[1], xlim[2], xlim[2], xlim[1], xlim[1]), 
+      c(ylim[1], ylim[1], ylim[2], ylim[2], ylim[1])
+    )
+  ) %>%
+  st_polygon() %>%
+  st_sfc(crs = crs_goode)
+
+# area outside the earth outline
+goode_without <- st_difference(goode_bbox, goode_outline)
+
+ggplot(world_sf) + 
+  geom_sf(fill = "#E69F00B0", color = "black", size = 0.5/.pt) +
+  geom_sf(data = goode_without, fill = "white", color = NA) +
+  geom_sf(data = goode_outline, fill = NA, color = "grey30", size = 0.5/.pt) +
+  scale_x_continuous(name = NULL, breaks = seq(-120, 120, by = 60)) +
+  scale_y_continuous(name = NULL, breaks = seq(-60, 60, by = 30)) +
+  coord_sf(xlim = 0.95*xlim, ylim = 0.95*ylim, expand = FALSE, crs = crs_goode, ndiscr = 1000) + 
+  theme_dviz_grid(font_size = 12, rel_small = 1) +
+  theme(
+    panel.background = element_rect(fill = "#56B4E950", color = "white", size = 1),
+    panel.grid.major = element_line(color = "gray30", size = 0.25),
+    axis.ticks = element_line(color = "gray30", size = 0.5/.pt)
+  )
+```
+
+Shape or area distortions due to map projections are particularly prominent when we're attempting to make a map of the whole world, but they can cause trouble even at the scale of individual continents or countries. As an example, consider the United States, which consist of the "lower 48" (which are 48 contiguous states), Alaska, and Hawaii (Figure \@ref(fig:usa-orthographic)). While the lower 48 alone are reasonably easy to project onto a map, Alaska and Hawaii are so distant from the lower 48 that projecting all 50 states onto one map becomes awkward.
+
+(ref:usa-orthographic) Relative locations of Alaska, Hawaii, and the lower 48 states shown on a globe.
+
+```{r usa-orthographic, fig.width = 5.5, fig.asp = 1, fig.cap = '(ref:usa-orthographic)'}
+cenlat <- 35
+cenlong <- -130
+
+draw_ocean(cenlat, cenlong, lwd = 0.25)
+draw_land(map_polys$usa, cenlat, cenlong, col = "#D00000D0") 
+draw_land(map_polys$world_no_usa, cenlat, cenlong, col = "#C0C0C0B0")
+par(family = dviz_font_family_condensed, ps = 12)
+text(
+#  x = c(0.38, 0.05, -0.4),
+#  y = c(0.15, 0.49, -0.1),
+  x = c(0.36, -0.17, -0.4),
+  y = c(0.13, 0.49, -0.1),
+  labels = c("lower 48", "Alaska", "Hawaii"),
+  col = c("white", "white", "black")
+)
+```
+
+Figure \@ref(fig:usa-true-albers) shows a map of all 50 states, made using an equal-area Albers projection. This projection provides a reasonable representation of the relative shapes, areas, and locations of the 50 states, but we notice some issues. First, Alaska seems weirdly stretched out compared to how it looks, for example, in Figures \@ref(fig:world-mercator) or \@ref(fig:usa-orthographic). Second, the map is dominated by ocean/empty space. It would be preferable if we could zoom in further, so that the lower 48 states take up a larger proportion of the map area.
+
+(ref:usa-true-albers) Map of the United States of America, using an area-preserving Albers projection (ESRI:102003, commonly used to project the lower 48 states). Alaska and Hawaii are shown in their true locations.
+
+```{r usa-true-albers, fig.asp = 0.72, fig.cap = '(ref:usa-true-albers)'}
+longs <- -180:-20
+lats <- rep(89.9, length(longs))
+earth_boundary <- sf::st_sfc(
+    sf::st_linestring(
+      cbind(longs, lats)
+    ),
+    crs = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+  )
+earth_boundary <- sf::st_transform(earth_boundary, crs = "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=37.5 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs")
+whiteout <- data.frame(
+  x = earth_boundary[[1]][, 1],
+  y = earth_boundary[[1]][, 2]
+)
+
+p <- ggplot(US_states_geoms$true_albers) + 
+  geom_sf(fill = "#E69F00B0", color = "black", size = 0.5/.pt) +
+  geom_polygon(
+    data = whiteout, aes(x, y),
+    fill = "white", color = "gray30",
+    size = 0.5/.pt
+  ) +
+  coord_sf(xlim = c(-6721002, 2685733), ylim = c(-1634610, 4888053), expand = FALSE, ndiscr = 1000) +
+  scale_x_continuous(name = "longitude", breaks = -20*c(3:10)) +
+  scale_y_continuous(name = "latitude", breaks = (1:9)*10) +
+  theme_dviz_grid(font_size = 12, rel_small = 1) +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk"),
+    panel.background = element_rect(fill = "#56B4E950"),
+    panel.grid.major = element_line(color = "gray30", size = 0.25),
+    axis.ticks = element_line(color = "gray30", size = 0.5/.pt)
+  )
+
+## work around bug in sf graticule code
+## not needed anymore since sf 0.7-3
+#b <- ggplot_build(p)
+#b$layout$panel_params[[1]]$graticule$x_start[11] <- 0
+#b$layout$panel_params[[1]]$graticule$y_start[11] <- 0.849
+#ggdraw(ggplot_gtable(b))
+p
+```
+
+To address the problem of uninteresting empty space, it is common practice to project Alaska and Hawaii separately (to minimize shape distortions) and then move them so they are shown underneath the lower 48 (Figure \@ref(fig:usa-albers)). You may notice in Figure \@ref(fig:usa-albers) that Alaska looks much smaller relative to the lower 48 than it does in Figure \@ref(fig:usa-true-albers). The reason for this discrepancy is that Alaska has not only been moved, it also has been scaled so it looks comparable in size to typical midwestern or western states. This scaling, while common practice, is highly misleading, and therefore I have labeled the figure as "bad."
+
+(ref:usa-albers) Visualization of the United States, with the states of Alaska and Hawaii moved to lie underneath the lower 48 states. Alaska also has been scaled so its linear extent is only 35% of the state's true size. (In other words, the state's area has been reduced to approximately 12% of its true size.) Such a scaling is frequently applied to Alaska, to make it visually appear to be of similar size as typical midwestern or western states. However, the scaling is highly misleading, and therefore the figure has been labeled as "bad".
+
+```{r usa-albers, fig.asp = 0.65, fig.cap = '(ref:usa-albers)'}
+# standard US Albers map, with AK artificially small
+
+# mimic color of transparent orange on top of transparent blue,
+# as in previous maps drawn
+# color was obtained by extraction from rendered png
+brown <- "#deb664"
+
+p <- ggplot(US_states_geoms$us_albers) + 
+  geom_sf(fill = brown, color = "black", size = 0.5/.pt) +
+  coord_sf(datum = NA, expand = FALSE) +
+  theme_dviz_map() +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk"),
+    plot.margin = margin(6, 6, 1, 1.5) 
+  )
+
+stamp_bad(p)
+```
+
+Instead of both moving and scaling Alaska, we could just move it without changing its scale (Figure \@ref(fig:usa-albers-revised)). This visualization clearly shows that Alaska is the largest state, over twice the size of Texas. We are not used to seeing the U.S. shown in this way, but in my mind it is a much more reasonable representation of the 50 states than is Figure \@ref(fig:usa-albers).
+
+(ref:usa-albers-revised) Visualization of the United States, with the states of Alaska and Hawaii moved to lie underneath the lower 48 states.
+
+```{r usa-albers-revised, fig.asp = 0.75, fig.cap = '(ref:usa-albers-revised)'}
+# revised US Albers map, with AK at its original size
+ggplot(US_states_geoms$albers_revised) + 
+  geom_sf(fill = brown, color = "black", size = 0.5/.pt) +
+  coord_sf(datum = NA, expand = FALSE) +
+  theme_dviz_map() +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk")
+  )
+```
+
+
+## Layers
+
+To visualize geospatial data in the proper context, we usually create maps consisting of multiple layers showing different types of information. To demonstrate this concept, I will visualize the locations of wind turbines in the San Francisco Bay area. In the Bay Area, wind turbines are clustered in two locations. One location, which I will refer to as the Shiloh Wind Farm, lies near Rio Vista and the other lies east of Hayward near Tracy (Figure \@ref(fig:sfbay-overview)).
+
+(ref:sfbay-overview) Wind turbines in the San Francisco Bay Area. Individual wind turbines are shown as purple-colored dots. Two regions with a high concentration of wind turbines are highlighted with black rectangles. I refer to the wind turbines near Rio Vista collectively as the Shiloh Wind Farm. Map tiles by Stamen Design, under CC BY 3.0. Map data by OpenStreetMap, under ODbL. Wind turbine data: United States Wind Turbine Database
+
+```{r sfbay-overview, fig.width = 5.5*6/4.2, fig.asp = 0.75, fig.cap = '(ref:sfbay-overview)'}
+# From http://www.csgnetwork.com/degreelenllavcalc.html
+# Length Of A Degree Of Longitude In Meters at 38deg lat
+m_per_deg <- 87832.42967867786
+
+sfbay_scale = data.frame(
+  x = -122.83,
+  xend = -122.83 + 10000/m_per_deg,
+  y = 37.24,
+  yend = 37.24,
+  label = "10km"
+)
+
+sfbay_bbox <- c(left = -122.88, bottom = 37.20, right = -120.88, top = 38.31)
+
+wind_sfbay <- wind_turbines %>%
+  filter(
+    xlong < sfbay_bbox["right"],
+    xlong > sfbay_bbox["left"],
+    ylat > sfbay_bbox["bottom"],
+    ylat < sfbay_bbox["top"]
+  )
+
+shiloh_bbox <- c(left = -121.9, bottom = 38.06, right = -121.71, top = 38.20)
+tracy_bbox <- c(left = -121.73, bottom = 37.66, right = -121.55, top = 37.81)
+
+p1 <- ggmap(sfbay_maps$sfbay_bg)  + 
+  inset_ggmap(sfbay_maps$sfbay_lines) +
+  geom_point(
+    data = wind_sfbay,
+    aes(x = xlong, y = ylat),
+    size = 0.1,
+    color = "#A825A8",
+    alpha = 1/3
+  ) +
+  geom_rect(
+    data = data.frame(rbind(t(shiloh_bbox), t(tracy_bbox))),
+    aes(xmin = left, xmax = right, ymin = bottom, ymax = top),
+    size = 0.5,
+    color = "black",
+    fill = NA,
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = data.frame(x = 0.5*(shiloh_bbox['left'] + shiloh_bbox['right']), y = shiloh_bbox['top'], label = "Shiloh Wind Farm"),
+    aes(x, y, label = label),
+    hjust = 0.512,
+    vjust = -0.51,
+    family = dviz_font_family,
+    color = "white",
+    size = 11/.pt
+  ) +
+  geom_text(
+    data = data.frame(x = 0.5*(shiloh_bbox['left'] + shiloh_bbox['right']),
+                      y = shiloh_bbox['top'], label = "Shiloh Wind Farm"),
+    aes(x, y, label = label),
+    hjust = 0.5,
+    vjust = -0.5,
+    family = dviz_font_family,
+    size = 11/.pt
+  ) +
+  inset_ggmap(sfbay_maps$sfbay_labels) +
+  geom_segment(
+    data = sfbay_scale,
+    aes(x, y, xend = xend, yend = yend),
+    size = 1
+  ) +
+  geom_text(
+    data = sfbay_scale,
+    aes(0.5*(x+xend), y, label = label),
+    hjust = 0.5,
+    vjust = -0.5,
+    family = dviz_font_family,
+    size = 10/.pt
+  ) +
+  ggspatial::annotation_north_arrow(
+    width = grid::unit(1, "cm"),
+    height = grid::unit(1, "cm"),
+    pad_x = grid::unit(0.25, "cm"),
+    pad_y = grid::unit(0.5, "cm"),
+    style = ggspatial::north_arrow_fancy_orienteering(
+      line_width = 1,
+      text_size = 12,
+      text_family = dviz_font_family
+    ),
+    location ="tr"
+  ) +
+  theme_dviz_map()
+
+p1
+```
+
+Figure \@ref(fig:sfbay-overview) consists of four separate layers. At the bottom, we have the terrain layer, which shows hills, valleys, and water. The next layer shows the road network. On top of the road layer, I have placed a layer indicating the location of individual wind turbines. This layer also contains the two rectangles highlighting the majority of the wind turbines. Finally, the top layer adds the locations and names of cities. These four layers are shown separately in Figure \@ref(fig:sfbay-layers). For any given map we want to make, we may want to add or remove some of these layers. For example, if we wanted to draw a map of voting districts, we might consider terrain information to be irrelevant and distracting. Alternatively, if we wanted to draw a map of exposed or covered roof areas to assess potential for solar power generation, we might want to replace terrain information with satellite imagery that shows individual roofs and actual vegetation. You can interactively try these different types of layers in most online map applications, such as Google Maps. I would like to emphasize that regardless of which layers we decide to keep or remove, it is generally recommended to add a scale bar and a north arrow. The scale bar helps readers understand the size of the spatial features shown in the map, while the north arrow clarifies the map's orientation.
+
+(ref:sfbay-layers) The individual layers of Figure \@ref(fig:sfbay-overview). From bottom to top, the figure consists of a terrain layer, a roads layer, a layer showing the wind turbines, and a layer labeling cities and adding a scale bar and north arrow. Map tiles by Stamen Design, under CC BY 3.0. Map data by OpenStreetMap, under ODbL. Wind turbine data source: United States Wind Turbine Database
+
+```{r sfbay-layers, fig.width = 5.5*6/4.2, fig.asp = 0.75, fig.cap = '(ref:sfbay-layers) '}
+l1 <- ggmap(sfbay_maps$sfbay_bg) + labs(subtitle = "terrain") + 
+  geom_rect(
+    data = data.frame(t(sfbay_bbox)),
+    aes(xmin = left, xmax = right, ymin = bottom, ymax = top),
+    fill = NA, color = "black",
+    size = 0.5,
+    inherit.aes  = FALSE
+  ) +
+  theme_dviz_map() +
+  theme(plot.subtitle = element_text(margin = margin(0, 0, 3, 0)))
+
+l2 <- ggmap(sfbay_maps$sfbay_lines) + labs(subtitle = "roads") + 
+  geom_rect(
+    data = data.frame(t(sfbay_bbox)),
+    aes(xmin = left, xmax = right, ymin = bottom, ymax = top),
+    fill = NA, color = "black",
+    size = 0.5,
+    inherit.aes  = FALSE
+  ) +
+  theme_dviz_map() +
+  theme(plot.subtitle = element_text(margin = margin(0, 0, 3, 0)))
+
+
+l3 <- ggmap(sfbay_maps$sfbay_labels) + 
+  geom_segment(
+    data = sfbay_scale,
+    aes(x, y, xend = xend, yend = yend),
+    size = .5*1
+  ) +
+  geom_text(
+    data = sfbay_scale,
+    aes(0.5*(x+xend), y, label = label),
+    hjust = 0.5,
+    vjust = -0.5,
+    family = dviz_font_family,
+    size = .5*10/.pt
+  ) +
+  geom_rect(
+    data = data.frame(t(sfbay_bbox)),
+    aes(xmin = left, xmax = right, ymin = bottom, ymax = top),
+    fill = NA, color = "black",
+    size = 0.5,
+    inherit.aes  = FALSE
+  ) +
+  ggspatial::annotation_north_arrow(
+    width = grid::unit(.5*1, "cm"),
+    height = grid::unit(.5*1, "cm"),
+    pad_x = grid::unit(.5*0.25, "cm"),
+    pad_y = grid::unit(.5*0.5, "cm"),
+    style = ggspatial::north_arrow_fancy_orienteering(
+      line_width = .5*1,
+      text_size = .5*12,
+      text_family = dviz_font_family
+    ),
+    location ="tr"
+  ) +
+ labs(subtitle = "city labels, scale bar") + 
+ theme_dviz_map() +
+ theme(plot.subtitle = element_text(margin = margin(0, 0, 3, 0)))
+
+
+l4 <- ggmap(sfbay_maps$sfbay_bg) +
+  geom_rect(
+    data = data.frame(t(sfbay_bbox)),
+    aes(xmin = left, xmax = right, ymin = bottom, ymax = top),
+    fill = "white", color = "black",
+    size = 0.5,
+    inherit.aes  = FALSE
+  ) + 
+  geom_point(
+    data = wind_sfbay,
+    aes(x = xlong, y = ylat),
+    size = .5*0.1,
+    color = "#A825A8",
+    alpha = 1/3
+  ) +
+  geom_rect(
+    data = data.frame(rbind(t(shiloh_bbox), t(tracy_bbox))),
+    aes(xmin = left, xmax = right, ymin = bottom, ymax = top),
+    size = .5*0.5,
+    color = "black",
+    fill = NA,
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = data.frame(x = 0.5*(shiloh_bbox['left'] + shiloh_bbox['right']), y = shiloh_bbox['top'], label = "Shiloh Wind Farm"),
+    aes(x, y, label = label),
+    hjust = 0.5,
+    vjust = -0.5,
+    family = dviz_font_family,
+    size = .5*11/.pt
+  ) +
+  labs(subtitle = "wind turbines") +
+  theme_dviz_map() +
+  theme(plot.subtitle = element_text(margin = margin(0, 0, 3, 0)))
+
+plot_grid(
+  l1, NULL, l2,
+  l4, NULL, l3,
+  rel_widths = c(1, .05, 1)
+)
+
+# fig asp: 418/519 ~= 0.805
+```
+
+All the concepts discussed in Chapter \@ref(aesthetic-mapping) of mapping data onto aesthetics carry over to maps. We can place data points into their geographic context and show other data dimensions via aesthetics such as color or shape. For example, Figure \@ref(fig:shiloh-map) provides a zoomed-in view of the rectangle labeled "Shiloh Wind Farm" in Figure \@ref(fig:sfbay-overview). Individual wind turbines are shown as dots, with the color of the dots representing when a specific turbine was built and the shape representing the project to which the wind turbine belongs. A map such as this one can provide a quick overview of how an area was developed. E.g., here we see that EDF Renewables is a relatively small project built before 2000, High Winds is a moderately sized project build between 2000 and 2004, and Shiloh and Solano are the largest two projects in the area, both built over an extended period of time.
+
+(ref:shiloh-map) Location of individual wind turbines in the Shiloh Wind Farm. Each dot highlights the location of one wind turbine. The map area corresponds to the rectangle in Figure \@ref(fig:sfbay-overview). Dots are colored by when the wind turbine was built, and the shape of the dots represents the various projects to which the individual wind turbines belong. Map tiles by Stamen Design, under CC BY 3.0. Map data by OpenStreetMap, under ODbL. Wind turbine data source: United States Wind Turbine Database
+
+```{r shiloh-map, fig.asp = 0.75, fig.cap = '(ref:shiloh-map)'}
+# From http://www.csgnetwork.com/degreelenllavcalc.html
+# Length Of A Degree Of Longitude In Meters at 38deg lat
+m_per_deg <- 87832.42967867786
+
+shiloh_scale = data.frame(
+  x = -121.735,
+  xend = -121.735 + 2000/m_per_deg,
+  y = 38.064,
+  yend = 38.064,
+  label = "2000m"
+)
+
+#bbox <- c(left = -121.9, bottom = 38.06, right = -121.71, top = 38.20)
+wind_shiloh <- wind_turbines %>%
+  filter(
+    xlong < shiloh_bbox["right"],
+    xlong > shiloh_bbox["left"],
+    ylat > shiloh_bbox["bottom"],
+    ylat < shiloh_bbox["top"]
+  ) %>%
+  mutate(
+    name = fct_relevel(fct_collapse(p_name,
+      `EDF Renewables` = "EDF Renewable V",
+      `High Winds` = "High Winds",
+      `Shiloh` = c("Shiloh Wind Project", "Shiloh II", "Shiloh III", "Shiloh IV"),
+      `Solano` = c("Solano Phase 3", "Solano Phase IIA", "Solano Wind Project", "Solano Wind Project, Phase I", "Solano Wind Project, Phase IA"),
+      `other` = c("Montezuma", "Montezuma Winds II", "unknown Solano County")
+    ), "EDF Renewables", "High Winds", "Shiloh", "Solano", "other"),
+    year_range = cut(
+      p_year,
+      breaks = c(1980, 2000, 2005, 2010, 2015),
+      labels = c("before 2000", "2000 to 2004", "2005 to 2009", "2010 to 2014"),
+      right = FALSE
+    )
+  )
+
+p2 <- ggmap(sfbay_maps$shiloh_terrain)  + 
+  geom_point(
+    data = wind_shiloh,
+    aes(x = xlong, y = ylat, fill = year_range, shape = name),
+    size = 1.5,
+    color = "black", stroke = 0.2
+  ) +
+  geom_segment(
+    data = shiloh_scale,
+    aes(x, y, xend = xend, yend = yend),
+    size = 1
+  ) +
+  geom_text(
+    data = shiloh_scale,
+    aes(0.5*(x+xend), y, label = label),
+    hjust = 0.5,
+    vjust = -0.5,
+    family = dviz_font_family,
+    size = 10/.pt
+  ) +
+  ggspatial::annotation_north_arrow(
+    width = grid::unit(1, "cm"),
+    height = grid::unit(1, "cm"),
+    pad_x = grid::unit(0.2, "cm"),
+    pad_y = grid::unit(0.2, "cm"),
+    style = ggspatial::north_arrow_fancy_orienteering(
+      line_width = 1,
+      text_size = 12,
+      text_family = dviz_font_family
+    ),
+    location ="bl"
+  ) +
+  xlab(label = NULL) +
+  ylab(label = NULL) +
+  scale_fill_viridis_d(
+    name = "year built",
+    option = "A", end = .95, begin = 0.3, direction = -1,
+    guide = guide_legend(
+      order = 2,
+      reverse = FALSE,
+      override.aes = list(shape = 22, size = 4, stroke = 0))
+  ) +
+  scale_shape_manual(
+    name = "project name",
+    values = 21:25,
+    guide = guide_legend(
+      order = 1,
+      override.aes = list(
+        fill = "grey70",
+        size = 2
+      )
+    )
+  ) +
+  theme_dviz_map(12) +
+  theme(
+    legend.key.width = grid::unit(12, "pt")
+  )
+
+p2
+```
+
+
+## Choropleth mapping {#choropleth-mapping}
+
+We frequently want to show how some quantity varies across locations. We can do so by coloring individual regions in a map according to the data dimension we want to display. Such maps are called *choropleth maps.*
+
+As a simple example, consider the population density (persons per square kilometer) across the United States. We take the population number for each county in the U.S., divide it by the county's surface area, and then draw a map where the color of each county corresponds to the ratio between population number and area (Figure \@ref(fig:population-density-counties)). We can see how the the major cities on the east and the west coast are the most populated areas of the U.S., the great plains and western states have low population densities, and the state of Alaska is the least populated of all.
+
+(ref:population-density-counties) Population density in every U.S. county, shown as a choropleth map. Population density is reported as persons per square kilometer. Data source: 2015 Five-Year American Community Survey
+
+```{r population-density-counties, fig.asp = 0.73, fig.cap = '(ref:population-density-counties)'}
+# x range: -3683715  2258154
+# y range: -2839538  1558935
+
+US_counties_income <- mutate(US_counties_income, logdens = log(as.numeric(popdens)*1e6))
+
+p <- ggplot(US_counties_income) + 
+  geom_sf(aes(color = logdens, fill = logdens), size = 0.1) + 
+  geom_sf(data = US_states_geoms$albers_revised, fill = NA, color = "grey30", size = 0.2) +
+  coord_sf(datum = NA, expand = FALSE) +
+  scale_x_continuous(limits = c(-4000000, 2300000)) +
+  scale_fill_continuous_sequential(
+    aesthetics = c("color", "fill"),
+    palette = "YlGnBu", rev = TRUE, cmax = 20, c2 = 20, p2 = 1.75,
+    name = "population density\n(persons / square km)",
+    limits = log(c(0.01, 30000)),
+    breaks = log(c(0.01, 1, 100, 10000)),
+    labels = c("0.01", "1", "100", "10,000"),
+    guide = guide_colorbar(
+      frame.colour = "black",
+      ticks.colour = "white",
+      barwidth = grid::unit(15, "pt"),
+      barheight = grid::unit(90, "pt")
+    )
+  ) +
+  theme_dviz_map(12, rel_small = 1) +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk"),
+    legend.position = c(0, 1),
+    legend.justification = c(0, 1),
+    legend.spacing.x = grid::unit(3, "pt"),
+    legend.title = element_text(hjust = 0.5),
+    plot.margin = margin(3, 3, 3, 1.5)
+  )
+
+ggdraw(align_legend(p))
+```
+
+
+Figure \@ref(fig:population-density-counties) uses light colors to represent low population densities and dark colors to represent high densities, so that high-density metropolitan areas stand out as dark colors on a background of light colors. We tend to associate darker colors with higher intensities when the background color of the figure is light. However, we can also pick a color scale where high values light up on a dark background (Figure \@ref(fig:population-density-counties2)). As longs as the lighter colors fall into the red-yellow spectrum, so that they appear to be glowing, they can be perceived as representing higher intensities. As a general principle, when figures are meant to be printed on white paper then light-colored background areas (as in Figure \@ref(fig:population-density-counties)) will typically work better. For online viewing or on a dark background, dark-colored background areas (as in Figure \@ref(fig:population-density-counties2)) may be preferable.
+
+(ref:population-density-counties2) Population density in every U.S. county, shown as a choropleth map. This map is identical to Figure \@ref(fig:population-density-counties) except that now the color scale uses light colors for high population densities and dark colors for low population densities. Data source: 2015 Five-Year American Community Survey
+
+```{r population-density-counties2, fig.asp = 0.73, fig.cap = '(ref:population-density-counties2)'}
+# x range: -3683715  2258154
+# y range: -2839538  1558935
+
+p <- ggplot(US_counties_income) + 
+  geom_sf(aes(color = logdens, fill = logdens), size = 0.1) +
+  # state boundaries don't look good with this color scale
+  geom_sf(data = US_states_geoms$albers_revised, fill = NA, color = "black", size = 0.2) +
+  coord_sf(datum = NA, expand = FALSE) +
+  scale_x_continuous(limits = c(-4000000, 2300000)) +
+  scale_fill_continuous_sequential(
+    aesthetics = c("color", "fill"),
+    palette = "Lajolla", rev = TRUE, p1 = 2, p2 = 1.3,
+    name = "population density\n(persons / square km)",
+    limits = log(c(0.01, 30000)),
+    breaks = log(c(0.01, 1, 100, 10000)),
+    labels = c("0.01", "1", "100", "10,000"),
+    guide = guide_colorbar(
+      frame.colour = "black",
+      ticks.colour = "white",
+      barwidth = grid::unit(15, "pt"),
+      barheight = grid::unit(90, "pt")
+    )
+  ) +
+  theme_dviz_map(12, rel_small = 1) +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk"),
+    legend.position = c(0, 1),
+    legend.justification = c(0, 1),
+    legend.spacing.x = grid::unit(3, "pt"),
+    legend.title = element_text(hjust = 0.5),
+    plot.margin = margin(3, 3, 3, 1.5)
+  )
+
+ggdraw(align_legend(p))
+```
+
+
+(ref:median-income-counties) Median income in every U.S. county, shown as a choropleth map. Data source: 2015 Five-Year American Community Survey
+
+
+```{r median-income-counties, eval = FALSE, fig.asp = 0.73, fig.cap = '(ref:median-income-counties)'}
+# x range: -3683715  2258154
+# y range: -2839538  1558935
+
+p <- ggplot(US_counties_income) + 
+  geom_sf(aes(color = median_income, fill = median_income), size = 0.1) + 
+  geom_sf(data = US_states_geoms$albers_revised, fill = NA, color = "grey30", size = 0.2) +
+  coord_sf(datum = NA, expand = FALSE) +
+  scale_x_continuous(limits = c(-4000000, 2300000)) +
+  scale_fill_continuous_sequential(
+    aesthetics = c("color", "fill"),
+    #palette = "Lajolla", rev = TRUE, p1 = 2, p2 = 1.3,
+    #palette = "BlueYellow", rev = TRUE, l1 = 15, p2 = 1.7,
+    h1 = -83, h2 = 20, c1 = 30, cmax = 40, c2 = 0, l1 = 20, l2 = 100, p1 = 1, p2 = 1.2, rev = TRUE, 
+    name = "median income",
+    limits = c(0, 130000),
+    breaks = c(0, 50000, 100000),
+    labels = c("$0", "$50,000", "$100,000"),
+    guide = guide_colorbar(
+      frame.colour = "black",
+      ticks.colour = "white",
+      barwidth = grid::unit(15, "pt"),
+      barheight = grid::unit(90, "pt")
+    )
+  ) +
+  theme_dviz_map(12, rel_small = 1) +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk"),
+    legend.position = c(0, 1),
+    legend.justification = c(0, 1),
+    legend.spacing.x = grid::unit(3, "pt"),
+    legend.title = element_text(hjust = 0.5),
+    plot.margin = margin(3, 3, 3, 1.5)
+  )
+
+ggdraw(align_legend(p))
+```
+
+Choropleths work best when the coloring represents a density (i.e., some quantity divided by surface area, as in Figures \@ref(fig:population-density-counties) and \@ref(fig:population-density-counties2)). We perceive larger areas as corresponding to larger amounts than smaller areas (see also the chapter on proportional ink, Chapter \@ref(proportional-ink)), and shading by density corrects for this effect. However, in practice, we often see choropleths colored according to some quantity that is not a density. For example, in Figure \@ref(fig:map-Texas-income) I showed a choropleth of median annual income in Texas counties. Such choropleth maps can be appropriate when they are prepared with caution. There are two conditions under which we can color-map quantities that are not densities: First, if all the individual areas we color have approximately the same size and shape, then we don't have to worry about some areas drawing disproportionate attention solely due to their size. Second, if the individual areas we color are relatively small compared to the overall size of the map and if the quantity that color represents changes on a scale larger than the individual colored areas, then again we don't have to worry about some areas drawing disproportionate attention solely due to their size. Both of these conditions are approximately met in Figure \@ref(fig:map-Texas-income).
+
+It is also important to consider the effect of continuous versus discrete color scales in choropleth mapping. While continuous color scales tend to look visually appealing (e.g., Figures \@ref(fig:population-density-counties) and \@ref(fig:population-density-counties2)), they can be difficult to read. We are not very good at recognizing a specific color value and matching it against a continuous scale. Therefore, it is often appropriate to bin the data values into discrete groups that are represented with distinct colors. On the order of four to six bins is a good choice. The binning sacrifices some information, but on the flip side the binned colors can be uniquely recognized. As an example, Figure \@ref(fig:median-income-counties-binned) expands the map of median income in Texas counties (Figure \@ref(fig:map-Texas-income)) to all counties in the U.S., and it uses a color scale consisting of five distinct income bins. 
+
+(ref:median-income-counties-binned) Median income in every U.S. county, shown as a choropleth map. The median income values have been binned into five distinct groups, because binned color scales are generally easier to read than continuous color scales. Data source: 2015 Five-Year American Community Survey
+
+```{r median-income-counties-binned, fig.asp = 0.73, fig.cap = '(ref:median-income-counties-binned)'}
+# x range: -3683715  2258154
+# y range: -2839538  1558935
+
+US_counties_income <- mutate(
+  US_counties_income,
+  income_bins = cut(
+      ifelse(is.na(median_income), 35000, median_income), # hide missing value
+      breaks = c(0, 30000, 55000, 80000, 105000, 150000),
+      labels = c("< $30k", "$30k to $60k", "$60k to $85k", "$85k to $105k", "> $105k"),
+      right = FALSE
+    )
+  )
+
+p <- ggplot(US_counties_income) + 
+  geom_sf(aes(color = income_bins, fill = income_bins), size = 0.1) + 
+  geom_sf(data = US_states_geoms$albers_revised, fill = NA, color = "grey30", size = 0.2) +
+  coord_sf(datum = NA, expand = FALSE) +
+  scale_x_continuous(limits = c(-4000000, 2300000)) +
+  scale_fill_discrete_sequential(
+    aesthetics = c("color", "fill"),
+    h1 = -83, h2 = 20, c1 = 30, cmax = 40, c2 = 0, l1 = 20, l2 = 100, p1 = 1, p2 = 1.2, rev = TRUE, 
+    name = "median income",
+    nmax = 6,
+    order = 2:6,
+    guide = guide_legend(
+      override.aes = list(colour = "white", size = 1),
+      reverse = TRUE
+    )
+  ) +
+  theme_dviz_map(12, rel_small = 1) +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk"),
+    legend.position = c(0, 1),
+    legend.justification = c(0, 1),
+    legend.spacing.x = grid::unit(3, "pt"),
+    legend.spacing.y = grid::unit(3, "pt"),
+    legend.title = element_text(hjust = 0.5),
+    legend.key.width = grid::unit(18, "pt"),
+    legend.key.height = grid::unit(15, "pt"),
+    plot.margin = margin(3, 3, 3, 1.5)
+  )
+
+p
+```
+
+Even though counties are not quite as equal-sized and even-shaped across the entire U.S. as they are just within Texas, I think Figure \@ref(fig:median-income-counties-binned) still works as a choropleth map. No individual county overly dominates the map. However, things look different when we draw a comparable map at the state level (Figure \@ref(fig:median-income-states)). Then Alaska dominates the choropleth and, because of its size, suggests that median incomes above \$70,000 are common. Yet Alaska is very sparsely populated (see Figures \@ref(fig:population-density-counties) and \@ref(fig:population-density-counties2)), and thus the income levels in Alaska apply only to a small portion of the U.S. population. The vast majority of U.S. counties, which are nearly all more populous than counties in Alaska, have a median income of below \$60,000.
+
+(ref:median-income-states) Median income in every U.S. state, shown as a choropleth map. This map is visually dominated by the state of Alaska, which has a high median income but very low population density. At the same time, the densely populated high-income states on the East Coast do not appear very prominent on this map. In aggregate, this map provides a poor visualization of the income distribution in the U.S., and therefore I have labeled it as "bad." Data source: 2015 Five-Year American Community Survey
+
+
+```{r median-income-states, fig.asp = 0.73, fig.cap = '(ref:median-income-states)'}
+# x range: -3683715  2258154
+# y range: -2839538  1558935
+
+US_income <- mutate(
+  US_income,
+  income_bins = cut(
+      ifelse(is.na(median_income), 25000, median_income), # hide missing value
+      breaks = c(0, 40000, 50000, 60000, 70000, 80000),
+      labels = c("< $40k", "$40k to $50k", "$50k to $60k", "$60k to $70k", "> $70k"),
+      right = FALSE
+    )
+  )
+
+p <- ggplot(US_income, aes(fill = income_bins)) + 
+  geom_sf(color = "grey30", size = 0.2) + 
+  coord_sf(datum = NA, expand = FALSE) +
+  scale_x_continuous(limits = c(-4000000, 2300000)) +
+  scale_fill_discrete_sequential(
+    h1 = -83, h2 = 20, c1 = 30, cmax = 40, c2 = 0, l1 = 20, l2 = 100, p1 = 1, p2 = 1.2, rev = TRUE, 
+    name = "median income",
+    nmax = 7,
+    order = 2:6,
+    guide = guide_legend(
+      override.aes = list(colour = "white", size = 1),
+      reverse = TRUE
+    )
+  ) +
+  theme_dviz_map(12, rel_small = 1) +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk"),
+    legend.position = c(0, 1),
+    legend.justification = c(0, 1),
+    legend.spacing.x = grid::unit(3, "pt"),
+    legend.spacing.y = grid::unit(3, "pt"),
+    legend.title = element_text(hjust = 0.5),
+    legend.key.width = grid::unit(18, "pt"),
+    legend.key.height = grid::unit(15, "pt"),
+    plot.margin = margin(3, 3, 3, 1.5)
+  )
+
+stamp_bad(p)
+```
+
+
+## Cartograms
+
+Not every map-like visualization has to be geographically accurate to be useful. For example, the problem with Figure \@ref(fig:median-income-states) is that some states take up a comparatively large area but are sparsely populated while others take up a small area yet have a large number of inhabitants. What if we deformed the states so their size was proportional to their number of inhabitants? Such a modified map is called a *cartogram*, and Figure \@ref(fig:median-income-cartogram) shows what it can look like for the median income dataset. We can still recognize individual states, yet we also see how the adjustment for population numbers has introduced important modifications. The east coast states, Florida, and California have grown a lot in size, whereas the other western states and Alaska have collapsed.
+
+(ref:median-income-cartogram) Median income in every U.S. state, shown as a cartogram. The shapes of individual states have been modified such that their area is proportional to their number of inhabitants. Data source: 2015 Five-Year American Community Survey
+
+```{r median-income-cartogram, fig.asp = 0.73, fig.cap = '(ref:median-income-cartogram)'}
+# copy binned data over, order of both data frames is the same
+US_income_cartogram$income_bins <- US_income$income_bins
+
+p <- ggplot(US_income_cartogram, aes(fill = income_bins)) + 
+  geom_sf(color = "grey30", size = 0.2) + coord_sf(datum = NA, expand = FALSE) +
+  scale_x_continuous(limits = c(-3900000, 2500000)) +
+  scale_fill_discrete_sequential(
+    h1 = -83, h2 = 20, c1 = 30, cmax = 40, c2 = 0, l1 = 20, l2 = 100, p1 = 1, p2 = 1.2, rev = TRUE, 
+    name = "median income",
+    nmax = 7,
+    order = 2:6,
+    guide = guide_legend(
+      override.aes = list(colour = "white", size = 1),
+      reverse = TRUE
+    )
+  ) +
+  theme_dviz_map(12, rel_small = 1) +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk"),
+    legend.position = c(0, 1),
+    legend.justification = c(0, 1),
+    legend.spacing.x = grid::unit(3, "pt"),
+    legend.spacing.y = grid::unit(3, "pt"),
+    legend.title = element_text(hjust = 0.5),
+    legend.key.width = grid::unit(18, "pt"),
+    legend.key.height = grid::unit(15, "pt"),
+    plot.margin = margin(3, 3, 3, 1.5)
+  )
+
+p
+```
+
+As an alternative to a cartogram with distorted shapes, we can also draw a much simpler *cartogram heatmap,* where each state is represented by a colored square (Figure \@ref(fig:median-income-statebins)). While this representation does not correct for the population number in each state, and thus underrepresents more populous states and overrepresents less populous states, at least it treats all states equally and doesn't weigh them arbitrarily by their shape or size.
+
+(ref:median-income-statebins) Median income in every U.S. state, shown as a cartogram heatmap. Each state is represented by an equally sized square, and the squares are arranged according to the approximate position of each state relative to the other states. This representation gives the same visual weight to each state. Data source: 2015 Five-Year American Community Survey
+
+```{r median-income-statebins, fig.asp = 0.62, fig.cap = '(ref:median-income-statebins)'}
+filter(US_income, name != "Puerto Rico", GEOID != "11") %>% # remove Puerto Rico and DC
+  ggplot(aes(state = name, fill = income_bins)) +
+  geom_statebins(family = dviz.supp::dviz_font_family,
+                 lbl_size = 14/.pt) +
+  expand_limits(x = -1.3) + # make space for legend
+  coord_equal(expand = FALSE) +
+   scale_fill_discrete_sequential(
+    h1 = -83, h2 = 20, c1 = 30, cmax = 40, c2 = 0, l1 = 20, l2 = 100, p1 = 1, p2 = 1.2, rev = TRUE, 
+    name = "median income",
+    nmax = 7,
+    order = 2:6,
+    guide = guide_legend(
+      override.aes = list(colour = "white", size = 1),
+      reverse = TRUE
+    )
+  ) +
+  theme_dviz_map(12, rel_small = 1) +
+  theme(
+    #plot.background = element_rect(fill = "cornsilk"),
+    legend.background = element_blank(),
+    legend.position = c(0, 1),
+    legend.justification = c(0, 1),
+    legend.spacing.x = grid::unit(3, "pt"),
+    legend.spacing.y = grid::unit(3, "pt"),
+    legend.title = element_text(hjust = 0.5),
+    legend.key.width = grid::unit(18, "pt"),
+    legend.key.height = grid::unit(15, "pt")
+  )
+```
+
+Finally, we can draw more complex cartograms by placing individual plots at the location of each state. For example, if we want to visualize the evolution of the unemployment rate over time for each state, it can help to draw an individual graph for each state and then arrange the graphs based on the approximate relative position of the states to each other (Figure \@ref(fig:unemployment-geofacet)). For somebody who is familiar with the geography of the United States, this arrangement may make it easier to find the graphs for specific states than arranging them, for example, in alphabetical order. Furthermore, one would expect neighboring states to display similar patterns, and Figure \@ref(fig:unemployment-geofacet) shows that this is indeed the case. 
+
+(ref:unemployment-geofacet) Unemployment rate leading up to and following the 2008 financial crisis, by state. Each panel shows the unemployment rate for one state, including the District of Columbia (DC), from January 2007 through May 2013. Vertical grid lines mark January of 2008, 2010, and 2012. States that are geographically close tend to show similar trends in the unemployment rate. Data source: U.S. Bureau of Labor Statistics
+
+```{r unemployment-geofacet, fig.width = 5.5*6/4.2, fig.asp = 0.75, fig.cap = '(ref:unemployment-geofacet)'}
+adjust_labels <- as_labeller(
+  function(x) {
+    case_when(
+      x == "New Hampshire" ~ "N. Hampshire",
+      x == "District of Columbia" ~ "DC",
+      TRUE ~ x
+    )
+  }
+)
+
+house_prices %>% 
+  filter(
+    date >= ymd("2007-01-01"),
+    date <= ymd("2013-05-31")
+  ) %>%
+  ggplot(aes(date, unemploy_perc)) + 
+  geom_area(fill = "#56B4E9", alpha = 0.7) +
+  geom_line() + 
+  scale_y_continuous(
+    name = "unemployment rate",
+    limits = c(0, 16), expand = c(0, 0),
+    breaks = c(0, 5, 10, 15),
+    labels = c("0%", "5%", "10%", "15%")
+  ) +
+  scale_x_date(
+    name = NULL,
+    breaks = ymd(c("2008-01-01", "2010-01-01", "2012-01-01")),
+    labels = c("'08", "'10", "'12"),
+    expand = c(0, 0)
+  ) +
+  coord_cartesian(clip = "off") +
+  facet_geo(~state, grid = "us_state_grid1", labeller = adjust_labels) +
+  theme_dviz_grid(12, dviz_font_family_condensed, rel_small = 10/12) +
+  theme(
+    strip.text = element_text(
+      family = dviz_font_family_condensed,
+      margin = margin(3, 3, 3, 3)
+    ),
+    axis.line.x = element_blank(),
+    panel.spacing.x = grid::unit(5, "pt"),
+    panel.spacing.y = grid::unit(5, "pt"),
+    panel.grid.major = element_line(color = "gray80"),
+    panel.background = element_rect(fill = "gray90")
+  ) -> p
+
+p
+```
+

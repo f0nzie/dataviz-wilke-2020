@@ -1,0 +1,1699 @@
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+# run setup script
+source("_common.R")
+
+library(forcats)
+library(lubridate)
+library(mgcv)
+library(tidyr)
+library(purrr)
+library(broom)
+library(emmeans)
+library(ungeviz)
+library(ggridges)
+library(tidybayes)
+
+animate <- TRUE # should animated figures be included or not
+#animate <- FALSE
+```
+
+# Visualizing uncertainty {#visualizing-uncertainty}
+
+One of the most challenging aspects of data visualization is the visualization of uncertainty. When we see a data point drawn in a specific location, we tend to interpret it as a precise representation of the true data value. It is difficult to conceive that a data point could actually lie somewhere it hasn't been drawn. Yet this scenario is ubiquitous in data visualization. Nearly every data set we work with has some uncertainty, and whether and how we choose to represent this uncertainty can make a major difference in how accurately our audience perceives the meaning of the data. 
+
+Two commonly used approaches to indicate uncertainty are error bars and confidence bands. These approaches were developed in the context of scientific publications, and they require some amount of expert knowledge to be interpreted correctly. Yet they are precise and space efficient. By using error bars, for example, we can show the uncertainties of many different parameter estimates in a single graph. For a lay audience, however, visualization strategies that create a strong intuitive impression of the uncertainty will be preferable, even if they come at the cost of either reduced visualization accuracy or less data-dense displays. Options here include frequency framing, where we explicitly draw different possible scenarios in approximate proportions, or animations that cycle through different possible scenarios.
+
+## Framing probabilities as frequencies {#frequency-framing}
+
+Before we can discuss how to visualize uncertainty, we need to define what it actually is. We can intuitively grasp the concept of uncertainty most easily in the context of future events. If I am going to flip a coin I don't know ahead of time what the outcome will be. The eventual outcome is uncertain. I can also be uncertain about events in the past, however. If yesterday I looked out of my kitchen window exactly twice, once at 8am and once at 4pm, and I saw a red car parked across the street at 8am but not at 4pm, then I can conclude the car left at some point during the eight-hour window but I don't know exactly when. It could have been 8:01am, 9:30am, 2pm, or any other time during those eight hours.
+
+Mathematically, we deal with uncertainty by employing the concept of probability. A precise definition of probability is complicated and far beyond the scope of this book. Yet we can successfully reason about probabilities without understanding all the mathematical intricacies. For many problems of practical relevance it is sufficient to think about relative frequencies. Assume you perform some sort of random trial, such as a coin flip or rolling a die, and look for a particular outcome (e.g., heads or rolling a six). You can call this outcome *success,* and any other outcome *failure.* Then, the probability of success is approximately given by the fraction of times you'd see that outcome if you repeated the random trial over and over again. For instance, if a particular outcome occurs with a probability of 10%, then we expect that among many repeated trials that outcome will be seen in approximately one out of ten cases.
+
+Visualizing a single probability is difficult. How would you visualize the chance of winning in the lottery, or the chance of rolling a six with a fair die? In both cases, the probability is a single number. We could treat that number as an amount and display it using any of the techniques discussed in Chapter \@ref(visualizing-amounts), such as a bar graph or a dot plot, but the result would not be very useful. Most people lack an intuitive understanding of how a probability value translates into experienced reality. Showing the probability value as a bar or as a dot placed on a line does not help with this problem.
+
+We can make the concept of probability tangible by creating a graph that emphasizes both the frequency aspect and the unpredictability of a random trial, for example by drawing squares of different colors in a random arrangement. In Figure \@ref(fig:probability-waffle), I use this technique to visualize three different probabilities, a 1% chance of success, a 10% chance of success, and a 40% chance of success. To read this figure, imagine you are given the task of picking a dark square by choosing a square before you can see which of the squares will be dark and which ones will be light. (If you will, you can think of picking a square with your eyes closed.) Intuitively, you will probably understand that it would be unlikely to select the one dark square in the 1%-chance case. Similarly, it would still be fairly unlikely to select a dark square in the 10%-chance case. However, in the 40%-chance case the odds don't look so bad. This style of visualization, where we show specific potential outcomes, is called a *discrete outcome visualization,* and the act of visualizing a probability as a frequency is called *frequency framing.* We are framing the probabilistic nature of a result in terms of easily understood frequencies of outcomes.
+
+(ref:probability-waffle) Visualizing probability as frequency. There are 100 squares in each grid, and each square represents either success of failure in some random trial. A 1% chance of success corresponds to one dark and 99 light squares, a 10% chance of success corresponds to ten dark and 90 light squares, and a 40% chance of success corresponds to 40 dark and 60 light squares. By randomly placing the dark squares among the light squares, we can create a visual impression of randomness that emphasizes the uncertainty of the outcome of a single trial.
+
+```{r probability-waffle, fig.width = 5*6/4.2, fig.asp = 1.2/3, fig.cap = '(ref:probability-waffle)'}
+g <- expand.grid(x = 1:10, y = 1:10)
+
+set.seed(84524)
+
+data <- data.frame(ratio = c(0.01, 0.1, 0.4)) %>%
+  mutate(
+    out = purrr::map(
+      ratio,
+      ~g %>% mutate(
+        value = {
+          n <- n()
+          i <- round(n*.x)
+          sample(c(rep("S", i), rep("F", n - i)), n)
+        }
+      )
+    )
+  ) %>%
+  unnest() %>%
+  mutate(
+    label = paste0(round(100*ratio), "% chance")
+  )
+
+ggplot(data, aes(x, y, fill = value)) +
+  geom_tile(color = "white", size = 1) +
+  coord_fixed(expand = FALSE, clip = "off") +
+  scale_x_continuous(name = NULL, breaks = NULL) +
+  scale_y_continuous(name = NULL, breaks = NULL) +
+  scale_fill_manual(
+    name = NULL,
+    breaks = c("S", "F"),
+    labels = c("success   ", "failure"),
+    values = c(
+      "S" = desaturate(darken("#0072B2", .4), .5),
+      "F" = desaturate(lighten("#0072B2", .7), .5)
+    ),
+    guide = guide_legend(override.aes = list(size = 0))
+  ) +
+  facet_wrap(~label) +
+  theme_dviz_grid() +
+  theme(
+    panel.spacing = unit(12, "pt"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.justification = "right",
+    legend.box.spacing = unit(6, "pt"),
+    legend.spacing.x = unit(3, "pt"),
+    legend.key.size = unit(10, "pt"),
+    plot.margin = margin(0, 0, 3.5, 0) # crop plot a little more tightly
+  )
+```
+
+If we are only interested in two discrete outcomes, success or failure, then a visualization such as Figure \@ref(fig:probability-waffle) works fine. However, often we are dealing with more complex scenarios where the outcome of a random trial is a numeric variable. One common scenario is that of election predictions, where we are interested not only in who will win but also by how much. Let's consider a hypothetical example of an upcoming election with two parties, the yellow party and the blue party. Assume you hear on the radio that the blue party is predicted to have a one percentage point advantage over the yellow party, with a margin of error of 1.76 percentage points. What does this information tell you about the likely outcome of the election? It is human nature to hear "the blue party will win," but reality is more complicated. First, and most importantly, there is a range of different possible outcomes. The blue party could end up winning with a lead of two percentage points or the yellow party could end up winning with a lead of half a percentage point. The range of possible outcomes with their associated likelihoods is called a probability distribution, and we can draw it as a smooth curve that rises and then falls over the range of possible outcomes (Figure \@ref(fig:election-prediction)). The higher the curve for a specific outcome, the more likely that outcome is. Probability distributions are closely related to the histograms and kernel densities discussed in Chapter \@ref(histograms-density-plots), and you may want to re-read that chapter to refresh your memory.
+
+(ref:election-prediction) Hypothetical prediction of an election outcome. The blue party is predicted to win over the yellow party by approximately one percentage point (labeled "best estimate"), but that prediction has a margin of error (here drawn so it covers 95% of the likely outcomes, 1.76 percentage points in either direction from the best estimate). The area shaded in blue, corresponding to 87.1% of the total, represents all outcomes under which blue would win. Likewise, the area shaded in yellow, corresponding to 12.9% of the total, represents all outcomes under which yellow would win. In this example, blue has an 87% chance of winning the election.
+
+```{r election-prediction, fig.asp = 0.5, fig.cap = '(ref:election-prediction)'}
+x <- c(seq(-2.5, 0, length.out = 50), seq(0.00001, 5, length.out = 100))
+mu <- 1.02
+sd <- .9
+
+df_norm <- data.frame(
+  x,
+  y = dnorm(x, mu, sd),
+  type = ifelse(x <= 0, "A", "B")
+)
+
+ci_x <- c(qnorm(.025, mu, sd), qnorm(0.975, mu, sd))
+ci_y <- dnorm(ci_x, mu, sd)
+
+df_annot <- data.frame(
+  x = c(mu + 0.05, mu + 0.1, mu + 2.3*sd, mu - 2.5*sd),
+  y = c(dnorm(mu, mu, sd) + 0.04, ci_y[1] + 0.01, 3*ci_y[1], 3*ci_y[1]),
+  hjust = c(0, 0, 0.5, 0.5),
+  vjust = c(1, 0, 0.5, 0.5),
+  label = c("best estimate", "margin of error", "blue wins", "yellow wins")
+)
+
+ggplot(df_norm, aes(x, y)) +
+  geom_area(aes(fill = type)) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  geom_line() +
+  geom_segment(
+    data = data.frame(x = 1),
+    x = ci_x[1], xend = ci_x[2], y = ci_y[1], yend = ci_y[2],
+    arrow = arrow(angle = 15, length = grid::unit(9, "pt"), ends = "both", type = "closed"),
+    inherit.aes = FALSE
+  ) +
+  geom_segment(
+    data = data.frame(x = 1),
+    x = mu, xend = mu, y = 0, yend = dnorm(mu, mu, sd) + 0.04,
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = df_annot,
+    aes(x, y, label = label, hjust = hjust, vjust = vjust),
+    family = dviz_font_family,
+    size = 12/.pt
+  ) +
+  scale_x_continuous(
+    name = "percentage point advantage for blue",
+    labels = scales::percent_format(accuracy = 0.1, scale = 1)
+  ) +
+  scale_y_continuous(
+    name = NULL,
+    breaks = NULL,
+    expand = c(0, 0),
+    limits = c(0, dnorm(mu, mu, sd) + 0.045)
+  ) +
+  scale_fill_manual(
+    values = c(A = "#f8f1a9", B = "#b1daf4"),
+    guide = "none"
+  ) +
+  theme_dviz_open()
+```
+
+By doing some math, we can calculate that for our made-up example, the chance of the yellow party winning is 12.9%. So the chance of yellow winning is a tad better than the 10% chance scenario shown in Figure \@ref(fig:probability-waffle). If you favor the blue party, you may not be overly worried, but the yellow party has enough of a chance of winning that they might just be successful. If you compare Figure \@ref(fig:election-prediction) to Figure \@ref(fig:probability-waffle), you may find that Figure \@ref(fig:probability-waffle) creates a much better sense of the uncertainty in outcome, even though the shaded areas in Figure \@ref(fig:election-prediction) accurately represent the probabilities of blue or yellow winning. This is the power of a discrete outcome visualization. Research in human perception shows that we are much better at perceiving, counting, and judging the relative frequencies of discrete objects---as long as their total number is not too large---than we are at judging the relative sizes of different areas.
+
+We can combine the discrete outcome nature of Figure \@ref(fig:probability-waffle) with a continuous distribution as in Figure \@ref(fig:election-prediction) by drawing a quantile dotplot [@Kay_et_al_2016]. In the quantile dotplot, we subdivide the total area under the curve into evenly sized units and draw each unit as a circle. We then stack the circles such that their arrangement approximately represents the original distribution curve (Figure \@ref(fig:election-quantile-dot)).
+
+(ref:election-quantile-dot) Quantile dotplot representations of the election outcome distribution of Figure \@ref(fig:election-prediction). (a) The smooth distribution is approximated with 50 dots representing a 2% chance each. The six yellow dots thus correspond to a 12% chance, reasonably close to the true value of 12.9%. (b) The smooth distribution is approximated with 10 dots representing a 10% chance each. The one yellow dot thus corresponds to a 10% chance, still close to the true value. Quantile dot plots with a smaller number of dots tend to be easier to read, so in this example, the 10-dot version might be preferable to the 50-dot version.
+
+```{r election-quantile-dot, fig.asp = 0.72, fig.cap = '(ref:election-quantile-dot)'}
+mu <- 1.02
+sd <- 0.9
+binwidth <- 0.31
+binwidth <- 0.29
+
+df_q <- data.frame(x = qnorm(ppoints(50), mu, sd)) %>%
+  mutate(type = ifelse(x <= 0, "A", "B"))
+
+p1 <- ggplot(df_q, aes(x, fill = type)) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  geom_line(data = df_norm, aes(x, 1.92*y)) + # factor 1.92 manually determined
+  geom_dotplot(binwidth = binwidth) +
+  scale_x_continuous(
+    name = NULL, #"percent point advantage for blue",
+    labels = scales::percent_format(accuracy = 0.1, scale = 1)
+  ) +
+  scale_y_continuous(
+    name = NULL,
+    breaks = NULL,
+    expand = c(0, 0),
+    limits = c(0, 0.9)
+  ) +
+  scale_fill_manual(
+    values = c(A = "#f8f1a9", B = "#b1daf4"),
+    guide = "none"
+  ) +
+  theme_dviz_open()
+
+binwidth <- 0.31*2.1
+
+df_q <- data.frame(x = qnorm(ppoints(10), mu, sd)) %>%
+  mutate(type = ifelse(x <= 0, "A", "B"))
+
+p2 <- ggplot(df_q, aes(x, fill = type)) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  geom_line(data = df_norm, aes(x, 1.92*y)) + # factor 1.92 manually determined
+  geom_dotplot(binwidth = binwidth) +
+  scale_x_continuous(
+    name = "percentage point advantage for blue",
+    labels = scales::percent_format(accuracy = 0.1, scale = 1)
+  ) +
+  scale_y_continuous(
+    name = NULL,
+    breaks = NULL,
+    expand = c(0, 0),
+    limits = c(0, 0.9)
+  ) +
+  scale_fill_manual(
+    values = c(A = "#f8f1a9", B = "#b1daf4"),
+    guide = "none"
+  ) +
+  theme_dviz_open()
+
+plot_grid(p1, p2, align = 'h', labels = "auto", ncol = 1)
+```
+
+As a general principle, quantile dotplots should use a small to moderate number of dots. If there are too many dots, then we tend to perceive them as a continuum rather than as individual, discrete units. This negates the advantages of the discrete plots. Figure \@ref(fig:election-quantile-dot) shows variants with 50 dots (Figure \@ref(fig:election-quantile-dot)a) and with ten dots (Figure \@ref(fig:election-quantile-dot)b). While the version with 50 dots more accurately captures the true probability distribution, the number of dots is too large to easily discriminate individual ones. The version with ten dots more immediately conveys the relative chances of blue or yellow winning. One objection to the ten-dot version might be that it is not very precise. We are underrepresenting the chance of yellow winning by 2.9 percentage points. However, it is often worthwhile to trade some mathematical precision for more accurate human perception of the resulting visualization, in particular when communicating to a lay audience. A visualization that is mathematically correct but not properly perceived is not that useful in practice.
+
+
+## Visualizing the uncertainty of point estimates
+
+In Figure \@ref(fig:election-prediction), I showed a "best estimate" and a "margin of error," but I didn't explain what exactly these quantities are or how they might be obtained. To understand them better, we need to take a quick detour into basic concepts of statistical sampling. In statistics, our overarching goal is to learn something about the world by looking at a small portion of it. To continue with the election example, assume there are many different electoral districts and the citizens of each district are going to vote for either the blue or the yellow party. We might want to predict how each district is going to vote, as well as the overall vote average across districts (the *mean*). To make a prediction before the election, we cannot poll each individual citizen in each district about how they are going to vote. Instead, we have to poll a subset of citizens in a subset of districts and use that data to arrive at a best guess. In statistical language, the total set of possible votes of all citizens in all districts is called the *population,* and the subset of citizens and/or districts we poll is the *sample.* The population represents the underlying, true state of the world and the sample is our window into that world.
+
+We are normally interested in specific quantities that summarize important properties of the population. In the election example, these could be the mean vote outcome across districts or the standard deviation among district outcomes. Quantities that describe the population are called *parameters,* and they are generally not knowable. However, we can use a sample to make a guess about the true parameter values, and statisticians refer to such guesses as *estimates.* The sample mean (or average) is an estimate for the population mean, which is a parameter. The estimates of individual parameter values are also called *point estimates,* since each can be represented by a point on a line.
+
+Figure \@ref(fig:sampling-schematic) shows how these key concepts are related to each other. The variable of interest (e.g., vote outcome in each district) has some distribution in the population, with a population mean and a population standard deviation. A sample will consist of a set of specific observations. The number of the individual observations in the sample is called the *sample size.* From the sample we can calculate a sample mean and a sample standard deviation, and these will generally differ from the population mean and standard deviation. Finally, we can define a *sampling distribution,* which is the distribution of estimates we would obtain if we repeated the sampling process many times. The width of the sampling distribution is called the *standard error,* and it tells us how precise our estimates are. In other words, the standard error provides a measure of the uncertainty associated with our parameter estimate. As a general rule, the larger the sample size, the smaller the standard error and thus the less uncertain the estimate.
+
+(ref:sampling-schematic) Key concepts of statistical sampling. The variable of interest that we are studying has some true distribution in the population, with a true population mean and standard deviation. Any finite sample of that variable will have a sample mean and standard deviation that differ from the population parameters. If we sampled repeatedly and calculated a mean each time, then the resulting means would be distributed according to the sampling distribution of the mean. The standard error provides information about the width of the sampling distribution, which informs us about how precisely we are estimating the parameter of interest (here, the population mean).
+
+```{r sampling-schematic, fig.asp = 3/4, fig.cap = '(ref:sampling-schematic)'}
+fill_color <- lighten("#56B4E9", 0.2)
+fill_color <- "lightblue"
+
+set.seed(452061)
+
+
+empty_theme <- theme_dviz_open(12, rel_small = 1, rel_large = 1) +
+  theme(
+    axis.line = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.ticks.length = grid::unit(0, "pt")
+  )
+
+x <- c(seq(-4, 4, length.out = 200))
+
+df_norm <- data.frame(
+  x,
+  y = dnorm(x)
+)
+
+sd_x <- c(-1, 1)
+sd_y <- dnorm(sd_x)
+
+df_annot <- data.frame(
+  x = c(0.05, sd_x[2] + 0.04, -Inf),
+  y = c(dnorm(0) * 0.4, sd_y[2] * 1.01, Inf), #sd_y[1] * 1.1
+  hjust = c(0, 0, 0),
+  vjust = c(1, 0.5, 1),
+  label = c("mean", "standard deviation", "population distribution")
+)
+
+
+p1 <- ggplot(df_norm, aes(x, y)) +
+  geom_area(fill = fill_color) +
+  geom_segment( # standard deviation
+    data = data.frame(x = 1),
+    x = 0, xend = sd_x[2], y = sd_y[1], yend = sd_y[2],
+    arrow = arrow(angle = 90, length = grid::unit(3, "pt"), ends = "both", type = "closed"),
+    inherit.aes = FALSE
+  ) +
+  geom_segment( # vertical line representing mean
+    data = data.frame(x = 1),
+    x = 0, xend = 0, y = 0, yend = dnorm(0),
+    linetype = 2,
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = df_annot,
+    aes(x, y, label = label, hjust = hjust, vjust = vjust),
+    family = dviz_font_family,
+    size = c(12, 12, 14)/.pt
+  ) +
+  scale_x_continuous(
+    limits = c(-4, 4), expand = c(0, 0),
+    breaks = 0, # workaround to fix missing axis line
+    name = "variable of interest"
+  ) +
+  scale_y_continuous(breaks = NULL, name = NULL, expand = expand_scale(mult = c(0, 0.1))) +
+  empty_theme +
+  theme(axis.line.x = element_line(), axis.title.x = element_text(hjust = 1))
+
+n <- 15
+df_sample <- data.frame(
+  x = rnorm(n),
+  y = 0
+)
+
+df_annot2 <- data.frame(
+  x = c(mean(df_sample$x) + 0.05, sort(df_sample$x)[2],
+        mean(df_sample$x) + sd(df_sample$x) + 0.05, -Inf),
+  y = c(-0.15, 0.12, .13 + 0.01, Inf),
+  hjust = c(0, 0.3, 0, 0),
+  vjust = c(0.5, 0.5, 0.5, 1),
+  label = c("sample mean", "observations", "sample standard deviation", "sample")
+)
+
+
+p2 <- ggplot(df_sample, aes(x, y)) +
+  geom_point(
+    size = 3, fill = fill_color, shape = 21, stroke = 0.5,
+    position = position_jitter(width = 0, height = 0.01, seed = 127)
+  ) +
+  geom_segment( # vertical bar representing mean
+    data = data.frame(x = 1),
+    aes(x = mean(df_sample$x), xend = mean(df_sample$x), y = -.2, yend = .2),
+    size = 1.5,
+    color = "#D55E00",
+    inherit.aes = FALSE
+  ) +
+  geom_segment( # horizontal bar representing sd
+    data = data.frame(x = 1),
+    x = mean(df_sample$x), xend = mean(df_sample$x) + sd(df_sample$x), y = .13, yend = .13,
+    arrow = arrow(angle = 90, length = grid::unit(3, "pt"), ends = "both", type = "closed"),
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = df_annot2,
+    aes(x, y, label = label, hjust = hjust, vjust = vjust),
+    family = dviz_font_family,
+    size = c(12, 12, 12, 14)/.pt
+  ) +
+  scale_x_continuous(limits = c(-4, 4), expand = c(0, 0), breaks = NULL, name = NULL) +
+  scale_y_continuous(expand = c(0.1, 0), breaks = NULL, name = NULL) +
+  empty_theme
+
+df_samplingdist <- data.frame(
+  x,
+  y = dnorm(x, 0, 1/sqrt(n))
+)
+
+se_x <- c(-1/sqrt(n), 1/sqrt(n))
+se_y <- dnorm(se_x, 0, 1/sqrt(n))
+
+df_annot3 <- data.frame(
+  x = c(0.05, se_x[2] + 0.04, -Inf),
+  y = c(dnorm(0, 0, 1/sqrt(n)) * 0.4, se_y[2] * 1.01, Inf),
+  hjust = c(0, 0, 0),
+  vjust = c(1, 0.5, 1),
+  label = c("mean of the sample means", "standard error", "sampling distribution of the mean")
+)
+
+p3 <- ggplot(df_samplingdist, aes(x, y)) +
+  geom_area(fill = fill_color) +
+  geom_segment( # standard error
+    data = data.frame(x = 1),
+    x = 0, xend = se_x[2], y = se_y[1], yend = se_y[2],
+    arrow = arrow(angle = 90, length = grid::unit(3, "pt"), ends = "both", type = "closed"),
+    inherit.aes = FALSE
+  ) +
+  geom_segment(
+    data = data.frame(x = 1),
+    x = 0, xend = 0, y = 0, yend = dnorm(0, 0, 1/sqrt(n)),
+    linetype = 2,
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = df_annot3,
+    aes(x, y, label = label, hjust = hjust, vjust = vjust),
+    family = dviz_font_family,
+    size = c(12, 12, 14)/.pt
+  ) +
+  scale_x_continuous(
+    limits = c(-4, 4), expand = c(0, 0),
+    breaks = 0, # workaround to fix missing axis line
+    name = "sample mean"
+  ) +
+  scale_y_continuous(breaks = NULL, name = NULL, expand = expand_scale(mult = c(0, 0.1))) +
+  empty_theme +
+  theme(axis.line.x = element_line(), axis.title.x = element_text(hjust = 1))
+
+plot_grid(
+  p1,
+  p2,
+  p3,
+  ncol = 1, rel_heights = c(1, .4, 1), align = 'v'
+)
+```
+
+It is critical that we don't confuse the standard deviation and the standard error. The standard deviation is a property of the population. It tells us how much spread there is among individual observations we could make. For example, if we consider the population of voting districts, the standard deviation tells us how different different districts are from one another. By contrast, the standard error tells us how precisely we have determined a parameter estimate. If we wanted to estimate the mean voting outcome over all districts, the standard error would tells us how accurate our estimate for the mean is.
+
+All statisticians use samples to calculate parameter estimates and their uncertainties. However, they are divided in how they approach these calculations, into Bayesians and frequentists. Bayesians assume that they have some prior knowledge about the world, and they use the sample to update this knowledge. By contrast, frequentists attempt to make precise statements about the world without having any prior knowledge in hand. Fortunately, when it comes to visualizing uncertainty, Bayesians and frequentists can generally employ the same types of strategies. Here, I will first discuss the frequentist approach and then describe a few specific issues unique to the Bayesian context.
+
+Frequentists most commonly visualize uncertainty with error bars. While error bars can be useful as a visualization of uncertainty, they are not without problems, as I already alluded to in Chapter \@ref(boxplots-violins) (see Figure \@ref(fig:lincoln-temp-points-errorbars)). It is easy for readers to be confused about what an error bar represents. To highlight this problem, in Figure \@ref(fig:cocoa-data-vs-CI) I show five different uses of error bars for the same dataset. The dataset contains expert ratings of chocolate bars, rated on a scale from 1 to 5, for chocolate bars manufactured in a number of different countries. For Figure \@ref(fig:cocoa-data-vs-CI) I have extracted all ratings for chocolate bars manufactured in Canada. Underneath the sample, which is shown as a strip chart of jittered dots, we see the sample mean plus/minus the standard deviation of the sample, the sample mean plus/minus the standard error, and 80%, 95%, and 99% confidence intervals. All five error bars are derived from the variation in the sample, and they are all mathematically related, but they have different meanings. And they are also visually quite distinct.
+
+(ref:cocoa-data-vs-CI) Relationship between sample, sample mean, standard deviation, standard error, and confidence intervals, in an example of chocolate bar ratings. The observations (shown as jittered green dots) that make up the sample represent expert ratings of 125 chocolate bars from manufacturers in Canada, rated on a scale from 1 (unpleasant) to 5 (elite). The large orange dot represents the mean of the ratings. Error bars indicate, from top to bottom, twice the standard deviation, twice the standard error (standard deviation of the mean), and 80%, 95%, and 99% confidence intervals of the mean. Data source: Brady Brelinski, Manhattan Chocolate Society
+
+```{r cocoa-data-vs-CI, fig.width = 5*6/4.2, fig.asp = 0.48, warning = FALSE, message = FALSE, fig.cap = '(ref:cocoa-data-vs-CI)'}
+
+# color for individual small data points
+point_color <- darken("#009E73", .3)
+
+cacao %>% 
+  filter(location == "Canada") -> cacao_single
+
+fit <- lm(rating ~ 1, data = cacao_single)
+
+CI_df <- data.frame(type = c(0.8, 0.95, 0.99)) %>%
+  mutate(df = map(type, ~tidy(emmeans(fit, ~ 1, options = list(level = .x))))) %>%
+  unnest() %>%
+  select(type, estimate, std.error, conf.low, conf.high) %>%
+  mutate(type = paste0(signif(100*type, 2), "% confidence interval"))
+
+CI_df <- rbind(
+  CI_df,
+  data.frame(
+    type = "standard error",
+    estimate = CI_df$estimate[1],
+    std.error = CI_df$std.error[1],
+    conf.low = CI_df$estimate[1] - CI_df$std.error[1],
+    conf.high = CI_df$estimate[1] + CI_df$std.error[1]
+  ),
+  data.frame(
+    type = "standard deviation",
+    estimate = mean(cacao_single$rating),
+    std.error = CI_df$std.error[1],
+    conf.low = mean(cacao_single$rating) - sd(cacao_single$rating),
+    conf.high = mean(cacao_single$rating) + sd(cacao_single$rating)
+  ),
+  data.frame(
+    type = "sample", estimate = mean(cacao_single$rating), std.error = NA,
+    conf.low = NA, conf.high = max(cacao_single$rating)
+  )
+) %>%
+  mutate(
+    type = fct_relevel(factor(type), "sample", "standard deviation", "standard error"),
+    label = case_when(
+      type == "sample" ~ NA_character_,
+      type == "standard deviation" ~ "+/- standard deviation",
+      type == "standard error" ~ "+/- standard error",
+      TRUE ~ as.character(type) #paste0("mean +/- ", type)
+    )
+  )
+
+label_x <- filter(CI_df, type == "standard deviation")$conf.high + 0.04
+
+ggplot(CI_df, aes(estimate, type)) + 
+  geom_point(
+    data = cacao_single, aes(rating, "sample"), 
+    position = position_jitter(height = 0.6, width = 0.02, seed = 7843),
+    color = point_color,
+    size = 0.3
+  ) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2, na.rm = TRUE) +
+  geom_point(size = 2, color = "#D55E00") +
+  geom_label(
+    aes(label_x, label = label), hjust = 0, nudge_y = 0.01, na.rm = TRUE,
+    family = dviz_font_family,
+    size = 14/.pt,
+    label.size = 0
+  ) +
+  geom_label(
+    data = filter(CI_df, type == "sample"),
+    aes(conf.high + 0.06, label = type), hjust = 0, nudge_y = 0.01,
+    family = dviz_font_family,
+    size = 14/.pt,
+    label.size = 0
+  ) +
+  geom_text(
+    data = filter(CI_df, type == "sample"),
+    aes(estimate, label = "mean"), hjust = 0.2, vjust = 0, nudge_y = 0.2,
+    family = dviz_font_family,
+    size = 14/.pt
+  ) +
+  scale_x_continuous(
+    limits = c(1.95, 4.1),
+    expand = c(0, 0),
+    name = "chocolate flavor rating"
+  ) +
+  scale_y_discrete(
+    name = NULL,
+    limits = rev(levels(CI_df$type)),
+    expand = expand_scale(add = c(0.6, 0.8)),
+    breaks = NULL
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_vgrid(14, rel_small = 1) +
+  theme(
+    plot.margin = margin(3, 82, 3, 1.5),
+    axis.line.x = element_line(),
+    axis.ticks.x = element_line(color = "black"),
+    axis.title.x = element_text(hjust = 1)
+  )
+
+```
+
+
+```{block type='rmdtip', echo=TRUE}
+Whenever you visualize uncertainty with error bars, you must specify what quantity and/or confidence level the error bars represent.
+```
+
+The standard error is approximately given by the sample standard deviation divided by the square root of the sample size, and confidence intervals are calculated by multiplying the standard error with small, constant values. For example, a 95% confidence interval extends approximately two times the standard error in either direction from the mean. Therefore, larger samples tend to have narrower standard errors and confidence intervals, even if their standard deviation is the same. We can see this effect when we compare ratings for chocolate bars from Canada to ones from Switzerland (Figure \@ref(fig:cocoa-CI-vs-n)). The mean rating and sample standard deviation are comparable between Canadian and Swiss chocolate bars, but we have ratings for 125 Canadian bars and only 38 Swiss bars, and consequently the confidence intervals around the mean are much wider in the case of Swiss bars.
+
+(ref:cocoa-CI-vs-n) Confidence intervals widen with smaller sample size. Chocolate bars from Canada and Switzerland have comparable mean ratings and comparable standard deviations (indicated with simple black error bars). However, over three times as many Canadian bars were rated as Swiss bars, and therefore the confidence intervals (indicated with error bars of different colors and thickness drawn on top of one another) are substantially wider for the mean of the Swiss ratings than for the mean of the Canadian ratings. Data source: Brady Brelinski, Manhattan Chocolate Society
+
+```{r cocoa-CI-vs-n, fig.width = 5*6/4.2, fig.asp = 0.46, warning = FALSE, message = FALSE, fig.cap = '(ref:cocoa-CI-vs-n)'}
+cacao_CA <- filter(cacao, location == "Canada")
+cacao_CH <- filter(cacao, location == "Switzerland")
+
+fit_CA <- lm(rating ~ 1, data = cacao_CA)
+fit_CH <- lm(rating ~ 1, data = cacao_CH)
+
+CI_CA <- data.frame(level = c(0.99, 0.95, 0.8)) %>%
+  mutate(df = map(level, ~tidy(emmeans(fit_CA, ~ 1, options = list(level = .x))))) %>%
+  unnest() %>%
+  select(level, estimate, conf.low, conf.high) %>%
+  mutate(
+    level = paste0(signif(100*level, 2), "%"),
+    type = "CI",
+    location = "Canada"
+  )
+
+CI_CH <- data.frame(level = c(0.99, 0.95, 0.8)) %>%
+  mutate(df = map(level, ~tidy(emmeans(fit_CH, ~ 1, options = list(level = .x))))) %>%
+  unnest() %>%
+  select(level, estimate, conf.low, conf.high) %>%
+  mutate(
+    level = paste0(signif(100*level, 2), "%"),
+    type = "CI",
+    location = "Switzerland"
+  )
+
+CI_df <- rbind(CI_CA, CI_CH)
+
+sd_df <- rbind(
+  data.frame(
+    level = NA,
+    estimate = mean(cacao_CA$rating),
+    conf.low = mean(cacao_CA$rating) - sd(cacao_CA$rating),
+    conf.high = mean(cacao_CA$rating) + sd(cacao_CA$rating),
+    type = "original data",
+    location = "Canada"
+  ),
+  data.frame(
+    level = NA,
+    estimate = mean(cacao_CH$rating),
+    conf.low = mean(cacao_CH$rating) - sd(cacao_CH$rating),
+    conf.high = mean(cacao_CH$rating) + sd(cacao_CH$rating),
+    type = "original data",
+    location = "Switzerland"
+  )
+)
+
+#label_x <- filter(CI_df, type == "standard deviation")$conf.high + 0.04
+
+ggplot(rbind(CI_df, sd_df), aes(estimate, interaction(location, type))) + 
+  geom_point(
+    data = cacao_CA, # draw two separate layers to get jittering right relative to previous figure
+    aes(rating, interaction(location, "original data")),
+    position = position_jitter(height = 0.6, width = 0.02, seed = 7843),
+    color = point_color,
+    size = 0.3
+  ) +
+  geom_point(
+    data = cacao_CH,
+    aes(rating, interaction(location, "original data")),
+    position = position_jitter(height = 0.6, width = 0.02, seed = 7844),
+    color = point_color,
+    size = 0.3
+  ) +
+  geom_errorbarh(
+    data = sd_df,
+    aes(y = interaction(location, "original data"), xmin = conf.low, xmax = conf.high),
+    height = 0.2
+  ) +
+  geom_errorbarh( # error bar without cap
+    data = CI_df,
+    aes(y = interaction(location, "CI"), xmin = conf.low, xmax = conf.high, color = level, size = level),
+    height = 0
+  ) +
+  geom_errorbarh( # error bar with cap
+    data = CI_df,
+    aes(y = interaction(location, "CI"), xmin = conf.low, xmax = conf.high, color = level),
+    height = 0.2
+  ) +
+  geom_point(size = 2, color = "#D55E00") +
+  geom_label(
+    data = data.frame(
+      estimate = 4.06,
+      location = c("Canada", "Switzerland"),
+      type = "original data",
+      label = c(
+        paste0("Canada,\nn = ", nrow(cacao_CA)),
+        paste0("Switzerland,\nn = ", nrow(cacao_CH))
+      )
+    ),
+    aes(label = label), hjust = 0, vjust = 0.5, nudge_y = 0.01,
+    family = dviz_font_family,
+    size = 14/.pt,
+    label.size = 0
+  ) +
+  scale_x_continuous(
+    limits = c(1.95, 4.1),
+    expand = c(0, 0),
+    name = "chocolate flavor rating"
+  ) +
+  scale_y_discrete(
+    name = NULL,
+    limits = rev(c("Canada.original data", "Canada.CI", "dummy", "Switzerland.original data", "Switzerland.CI")),
+    expand = expand_scale(add = c(1, 0.8)),
+    breaks = NULL
+  ) +
+  scale_fill_manual(
+    aesthetics = c("color", "fill"),
+    name = "confidence level",
+    values = c(
+     `80%` = desaturate(darken("#0072B2", .2), .3),
+     `95%` = desaturate(lighten("#0072B2", .2), .3),
+     `99%` = desaturate(lighten("#0072B2", .4), .3)
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  scale_size_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = 2.25,
+     `95%` = 1.5,
+     `99%` = .75
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_vgrid(14, rel_small = 1) +
+  theme(
+    plot.margin = margin(3, 82, 3, 1.5),
+    axis.line.x = element_line(),
+    axis.ticks.x = element_line(color = "black"),
+    axis.title.x = element_text(hjust = 1),
+    legend.position = c(0, 0.01),
+    legend.justification = c(0, 0),
+    legend.key.height = grid::unit(7, "pt"),
+    legend.key.width = grid::unit(35, "pt"),
+    legend.spacing.x = grid::unit(7, "pt"),
+    legend.spacing.y = grid::unit(3.5, "pt"),
+    legend.box.background = element_rect(fill = "white", color = NA),
+    legend.box.spacing = grid::unit(0, "pt"),
+    legend.title.align = 0.5
+  )
+
+```
+
+In Figure \@ref(fig:cocoa-CI-vs-n), I am showing three different confidence intervals at the same time, using darker colors and thicker lines for the intervals representing lower confidence levels. I refer to these visualizations as *graded error bars*. The grading helps the reader perceive that there is a range of different possibilities. If I showed simple  error bars (without grading) to a group of people, chances are at least some of them would perceive the error bars deterministically, for example as representing minimum and maximum of the data. Alternatively, they might think the error bars delineate the range of possible parameter estimates, i.e., the estimate could never fall outside the error bars. These types of misperception are called *deterministic construal errors.* The more we can minimize the risk of deterministic construal error, the better our visualization of uncertainty.
+
+Error bars are convenient because they allow us to show many estimates with their uncertainties all at once. Therefore, they are commonly used in scientific publications, where the primary goal is usually to convey a large amount of information to an expert audience. As an example of this type of application, Figure \@ref(fig:mean-chocolate-ratings) shows mean chocolate ratings and associated confidence intervals for chocolate bars manufactured in six different countries.
+
+(ref:mean-chocolate-ratings) Mean chocolate flavor ratings and associated confidence intervals for chocolate bars from manufacturers in six different countries. Data source: Brady Brelinski, Manhattan Chocolate Society
+
+```{r mean-chocolate-ratings, fig.width = 5*6/4.2, fig.asp = 0.5, fig.cap = '(ref:mean-chocolate-ratings)'}
+#countries <- c("Austria", "Belgium", "Canada", "Peru", "Switzerland")
+#
+cacao_small <- 
+  cacao_small %>% 
+  mutate(location = fct_recode(location, US = "U.S.A.")) # change to O'Reilly style
+
+fit <- lm(rating ~ location, data = cacao_small)
+
+conf_df <- data.frame(level = c(0.99, 0.95, 0.8)) %>%
+  mutate(df = map(level, ~tidy(emmeans(fit, ~location, options = list(level = .x))))) %>%
+  unnest() %>%
+  select(level, location, estimate, std.error, conf.low, conf.high) %>%
+  mutate(level = paste0(signif(100*level, 2), "%"))
+
+ggplot(conf_df, aes(estimate, reorder(location, estimate))) + 
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high, color = level, size = level),
+    height = 0
+  ) +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high, color = level),
+    height = 0.2
+  ) +
+  geom_point(data = filter(conf_df, level == "80%"), size = 2.5, color = "#D55E00") +
+  scale_x_continuous(
+    limits = c(2.6, 3.6),
+#    expand = c(0, 0),
+    name = "mean rating"
+  ) +
+ scale_y_discrete(
+#    position = "right",
+#    limits = rev(c("Canada.original data", "Canada.CI", "Switzerland.original data", "Switzerland.CI")),
+#    breaks = NULL,
+   name = NULL
+  ) +
+  scale_color_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = desaturate(darken("#0072B2", .2), .3),
+     `95%` = desaturate(lighten("#0072B2", .2), .3),
+     `99%` = desaturate(lighten("#0072B2", .4), .3)
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  scale_size_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = 2.25,
+     `95%` = 1.5,
+     `99%` = 0.75
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid(14, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.ticks.x = element_line(color = "black"),
+    axis.title.x = element_text(hjust = 1),
+    legend.position = c(1, 0.01),
+    legend.justification = c(1, 0),
+    legend.key.height = grid::unit(7, "pt"),
+    legend.key.width = grid::unit(35, "pt"),
+    legend.spacing.x = grid::unit(7, "pt"),
+    legend.spacing.y = grid::unit(3.5, "pt"),
+    legend.box.background = element_rect(fill = "white", color = NA),
+    legend.box.spacing = grid::unit(0, "pt"),
+    legend.title.align = 0.5
+  )
+
+```
+
+When looking at Figure \@ref(fig:mean-chocolate-ratings), you may wonder what it tells us about the differences in mean ratings. The mean ratings of Canadian, Swiss, and Austrian bars are higher than the mean rating of U.S. bars, but given the uncertainty in these mean ratings, are the differences in means *significant*? The word "significant" here is a technical term used by statisticians. We call a difference significant if with some level of confidence we can reject the assumption that the observed difference was caused by random sampling. Since only a finite number of Canadian and U.S. bars was rated, the raters could have accidentally considered more of the better Canadian bars and fewer of the better U.S. bars, and this random chance might look like a systematic rating advantage of Canadian over U.S. bars.
+
+Assessing significance from Figure \@ref(fig:mean-chocolate-ratings) is difficult, because both the mean Canadian rating and the mean U.S. rating have uncertainty. Both uncertainties matter to the question whether the means are different. Statistics textbooks and online tutorials sometimes publish rules of thumb of how to judge significance from the extent to which error bars do or don't overlap. However, these rules of thumb are not reliable and should be avoided. The correct way to assess whether there are differences in mean rating is to calculate confidence intervals for the differences. If those confidence intervals exclude zero, then we know the difference is significant at the respective confidence level. For the chocolate ratings dataset, we see that only bars from Canada are significantly higher rated than bars from the U.S. (Figure \@ref(fig:chocolate-ratings-contrasts)). For bars from Switzerland, the 95% confidence interval on the difference just barely includes the value zero. Thus, the difference between the mean ratings of U.S. and Swiss chocolate bars is barely not significant at the 5% level. Finally, there is no evidence at all that Austrian bars have systematically higher mean ratings that U.S. bars.
+
+(ref:chocolate-ratings-contrasts) Mean chocolate flavor ratings for manufacturers from five different countries, relative to the mean rating of U.S. chocolate bars. Canadian chocolate bars are significantly higher rated that U.S. bars. For the other four countries there is no significant difference in mean rating to the U.S. at the 95% confidence level. Confidence levels have been adjusted for multiple comparisons using Dunnett's method. Data source: Brady Brelinski, Manhattan Chocolate Society
+
+```{r chocolate-ratings-contrasts, fig.width = 5*6/4.2, fig.asp = 0.5, fig.cap = '(ref:chocolate-ratings-contrasts)'}
+# need reference grid for contrasts
+fit_rg <- ref_grid(fit)
+
+contrasts_dunnettx <- data.frame(level = c(0.99, 0.95, 0.8)) %>%
+  mutate(
+    df = map(
+      level,
+      ~data.frame(confint(contrast(fit_rg, method = "trt.vs.ctrl1"), level = .x))
+    )
+  ) %>%
+  unnest() %>%
+  select(level, contrast, estimate, std.error = SE, conf.low = lower.CL, conf.high = upper.CL) %>%
+  mutate(
+    level = paste0(signif(100*level, 2), "%"),
+    contrast = stringr::str_extract(as.character(contrast), "[a-zA-Z]+")
+  )
+
+ggplot(contrasts_dunnettx, aes(x = estimate, y = reorder(contrast, estimate))) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high, color = level, size = level),
+    height = 0
+  ) +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high, color = level),
+    height = 0.2
+  ) +
+  geom_point(data = filter(contrasts_dunnettx, level == "80%"), size = 2.5, color = "#D55E00") +
+  scale_x_continuous(
+    name = "difference in mean rating",
+    sec.axis = dup_axis(
+      name = NULL,
+      breaks = 0,
+      labels = "US mean rating"
+    )
+  ) +
+  scale_y_discrete(
+    name = NULL
+  ) +
+  scale_color_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = desaturate(darken("#0072B2", .2), .3),
+     `95%` = desaturate(lighten("#0072B2", .2), .3),
+     `99%` = desaturate(lighten("#0072B2", .4), .3)
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  scale_size_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = 2.25,
+     `95%` = 1.5,
+     `99%` = 0.75
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid(14, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.x.top = element_line(color = "gray50"),
+    #axis.title.x = element_text(hjust = 1),
+    legend.position = c(1, 0.02),
+    legend.justification = c(1, 0),
+    legend.key.height = grid::unit(7, "pt"),
+    legend.key.width = grid::unit(35, "pt"),
+    legend.spacing.x = grid::unit(7, "pt"),
+    legend.spacing.y = grid::unit(3.5, "pt"),
+    legend.box.background = element_rect(fill = "white", color = NA),
+    legend.box.spacing = grid::unit(0, "pt"),
+    legend.title.align = 0.5
+  )
+
+```
+
+In the preceding figures, I have used two different types of error bars, graded and simple. More variations are possible. For example, we can draw error bars with or without a cap at the end (Figure \@ref(fig:confidence-visualizations)a, c versus Figure \@ref(fig:confidence-visualizations)b, d). There are advantages and disadvantages to all these choices. Graded error bars highlight the existence of different ranges corresponding to different confidence levels. However, the flip side of this additional information is added visual noise. Depending on how complex and information-dense a figure is otherwise, simple error bars may be preferable to graded ones. Whether to draw error bars with or without cap is primarily a question of personal taste. A cap highlights where exactly an error bar ends (Figure \@ref(fig:confidence-visualizations)a, c), whereas an error bar without cap puts equal emphasis on the entire range of the interval (Figure \@ref(fig:confidence-visualizations)b, d). Also, again, caps add visual noise, so in a figure with many error bars omitting caps may be preferable.
+
+(ref:confidence-visualizations) Mean chocolate flavor ratings for manufacturers from four different countries, relative to the mean rating of U.S. chocolate bars. Each panel uses a different approach to visualizing the same uncertainty information. (a) Graded error bars with cap. (b) Graded error bars without cap. (c) Single-interval error bars with cap. (d) Single-interval error bars without cap. (e) Confidence strips. (f) Confidence distributions.
+
+```{r confidence-visualizations, fig.width = 5.5*6/4.2, fig.asp = 0.75, fig.cap = '(ref:confidence-visualizations)'}
+cacao_smaller <- filter(cacao_small, location != "Switzerland")
+
+fit <- lm(rating ~ location, data = cacao_smaller)
+fit_rg <- ref_grid(fit)
+
+contrasts_dunnettx <- data.frame(level = c(0.99, 0.95, 0.8)) %>%
+  mutate(
+    df = map(
+      level,
+      ~data.frame(confint(contrast(fit_rg, method = "trt.vs.ctrl1"), level = .x))
+    )
+  ) %>%
+  unnest() %>%
+  select(level, contrast, estimate, std.error = SE, conf.low = lower.CL, conf.high = upper.CL) %>%
+  mutate(
+    level = paste0(signif(100*level, 2), "%"),
+    contrast = stringr::str_extract(as.character(contrast), "[a-zA-Z]+")
+  )
+
+p1 <- ggplot(contrasts_dunnettx, aes(x = estimate, y = reorder(contrast, estimate))) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high, color = level, size = level),
+    height = 0
+  ) +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high, color = level),
+    height = 0.2
+  ) +
+  geom_point(data = filter(contrasts_dunnettx, level == "80%"), size = 2.5, color = "#D55E00") +
+  scale_x_continuous(
+    name = "difference in mean rating",
+    limits = c(-.65, .47),
+    expand = c(0, 0)
+  ) +
+  scale_y_discrete(name = NULL) +
+  scale_color_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = desaturate(darken("#0072B2", .2), .3),
+     `95%` = desaturate(lighten("#0072B2", .2), .3),
+     `99%` = desaturate(lighten("#0072B2", .4), .3)
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  scale_size_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = 1.5,
+     `95%` = 1,
+     `99%` = 0.5
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.x.top = element_line(color = "gray50"),
+    #axis.title.x = element_text(hjust = 1),
+    legend.position = "none",
+    #legend.position = c(1, .01),
+    legend.justification = c(1, 0),
+    legend.key.height = grid::unit(6, "pt"),
+    legend.key.width = grid::unit(30, "pt"),
+    legend.spacing.x = grid::unit(6, "pt"),
+    legend.spacing.y = grid::unit(3, "pt"),
+    legend.box.background = element_rect(fill = "white", color = NA),
+    legend.box.spacing = grid::unit(0, "pt"),
+    legend.title.align = 0.5
+  )
+
+p2 <- ggplot(filter(contrasts_dunnettx, level == "95%"),
+             aes(x = estimate, y = reorder(contrast, estimate))) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high),
+    height = 0.2
+  ) +
+  geom_point(size = 2.5, color = "#D55E00") +
+  scale_x_continuous(
+    name = "difference in mean rating",
+    limits = c(-.65, .47),
+    expand = c(0, 0)
+  ) +
+  scale_y_discrete(name = NULL) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.x.top = element_line(color = "gray50")
+  )
+
+p3 <- ggplot(contrasts_dunnettx, aes(x = estimate, y = reorder(contrast, estimate))) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high, color = level, size = level),
+    height = 0
+  ) +
+  geom_point(data = filter(contrasts_dunnettx, level == "80%"), size = 2.5, color = "#D55E00") +
+  scale_x_continuous(
+    name = "difference in mean rating",
+    limits = c(-.65, .47),
+    expand = c(0, 0)
+  ) +
+  scale_y_discrete(name = NULL) +
+  scale_color_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = desaturate(darken("#0072B2", .2), .3),
+     `95%` = desaturate(lighten("#0072B2", .2), .3),
+     `99%` = desaturate(lighten("#0072B2", .4), .3)
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  scale_size_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = 1.5,
+     `95%` = 1,
+     `99%` = 0.5
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.x.top = element_line(color = "gray50"),
+    #axis.title.x = element_text(hjust = 1),
+    legend.position = "none",
+    #legend.position = c(1, .01),
+    legend.justification = c(1, 0),
+    legend.key.height = grid::unit(6, "pt"),
+    legend.key.width = grid::unit(24, "pt"),
+    legend.spacing.x = grid::unit(6, "pt"),
+    legend.spacing.y = grid::unit(3, "pt"),
+    legend.box.background = element_rect(fill = "white", color = NA),
+    legend.box.spacing = grid::unit(0, "pt"),
+    legend.title.align = 0.5
+  )
+
+p4 <- ggplot(filter(contrasts_dunnettx, level == "95%"),
+             aes(x = estimate, y = reorder(contrast, estimate))) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  geom_errorbarh(
+    aes(xmin = conf.low, xmax = conf.high),
+    height = 0
+  ) +
+  geom_point(size = 2.5, color = "#D55E00") +
+  scale_x_continuous(
+    name = "difference in mean rating",
+    limits = c(-.65, .47),
+    expand = c(0, 0)
+  ) +
+  scale_y_discrete(name = NULL) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.x.top = element_line(color = "gray50")
+  )
+
+
+p5 <- ggplot(filter(contrasts_dunnettx, level == "95%"),
+             aes(x = estimate, y = reorder(contrast, estimate))) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  stat_confidence_density(
+    aes(moe = conf.high-estimate, fill = stat(ndensity)),
+    height = 0.7,
+    confidence = 0.95,
+    alpha = NA
+  ) +
+  geom_segment(
+    aes(
+      x = estimate, xend = estimate,
+      y = as.integer(reorder(contrast, estimate)) - 0.35,
+      yend = as.integer(reorder(contrast, estimate)) + 0.35
+    ),
+    size = 2, color = "#D55E00"
+  ) +
+  scale_fill_gradient(low = "#81A7D600", high = "#345A7FD0") +
+  scale_x_continuous(
+    name = "difference in mean rating",
+    limits = c(-.65, .47),
+    expand = c(0, 0)
+  ) +
+  scale_y_discrete(name = NULL) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.x.top = element_line(color = "gray50")
+  )
+
+
+p6 <- ggplot(filter(contrasts_dunnettx, level == "95%"),
+             aes(x = estimate, y = reorder(contrast, estimate))) +
+  geom_vline(xintercept = 0, linetype = 2, color = "gray50") +
+  stat_confidence_density(
+    aes(moe = conf.high-estimate, height = stat(density)),
+    geom = "ridgeline",
+    confidence = 0.95,
+    scale = 0.2,
+    min_height = 0.001,
+    alpha = 0.7,
+    fill = "#81A7D6",
+    size = 0.4
+  ) +
+  geom_segment(
+    aes(
+      x = estimate, xend = estimate,
+      y = as.integer(reorder(contrast, estimate)) - 0.2,
+      yend = as.integer(reorder(contrast, estimate)) + 0.5
+    ),
+    size = 2, color = "#D55E00"
+  ) +
+  scale_fill_gradient(low = "#81A7D600", high = "#345A7FD0") +
+  scale_x_continuous(
+    name = "difference in mean rating",
+    limits = c(-.65, .47),
+    expand = c(0, 0)
+  ) +
+  scale_y_discrete(name = NULL) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.x.top = element_line(color = "gray50"),
+    axis.text.y = element_text(vjust = 0)
+  )
+
+plot_grid(
+  p1, NULL, p3,
+  NULL, NULL, NULL,
+  p2, NULL, p4,
+  NULL, NULL, NULL,
+  p5, NULL, p6,
+  ncol = 3,
+  labels = c("a", "", "b", "", "", "", "c", "", "d", "", "", "", "e", "", "f"),
+  rel_widths = c(1, .02, 1),
+  rel_heights = c(1, .02, 1, .02, 1)
+)
+```
+
+As an alternative to error bars we could draw confidence strips that gradually fade into nothing (Figure \@ref(fig:confidence-visualizations)e). Confidence strips better convey how probable different values are, but they are difficult to read. We would have to visually integrate the different shadings of color to determine where a specific confidence level ends. From Figure \@ref(fig:confidence-visualizations)e we might conclude that the mean rating for Peruvian chocolate bars is significantly lower than that of U.S. chocolate bars, and yet this is not the case. Similar problems arise when we show explicit confidence distributions (Figure \@ref(fig:confidence-visualizations)f). It is difficult to visually integrate the area under the curve and to determine where exactly a given confidence level is reached. This issue can be somewhat alleviated, however, by drawing quantile dotplots as in Figure \@ref(fig:election-quantile-dot).
+
+For simple 2D figures, error bars have one important advantage over more complex displays of uncertainty: They can be combined with many other types of plots. For nearly any visualization we may have, we can add some indication of uncertainty by adding error bars. For example, we can show amounts with uncertainty by drawing a bar plot with error bars (Figure \@ref(fig:butterfat-bars)). This type of visualization is commonly used in scientific publications. We can also draw error bars along both the *x* and the *y* direction in a scatter plot (Figure \@ref(fig:median-age-income)). 
+
+(ref:butterfat-bars) Mean butterfat contents in the milk of four cattle breeds. Error bars indicate +/- one standard error of the mean. Visualizations of this type are frequently seen in the scientific literature. While they are technically correct, they represent neither the variation within each category nor the uncertainty of the sample means particularly well. See Figure \@ref(fig:butterfat-densitites) for the variation in butterfat contents within individual breeds. Data Source: Canadian Record of Performance for Purebred Dairy Cattle
+
+```{r butterfat-bars, fig.width = 5, fig.cap = '(ref:butterfat-bars)'}
+cows %>% filter(breed != "Canadian") %>%
+  mutate(breed = as.character(breed)) %>%
+  group_by(breed) %>%
+  summarize(
+    mean = mean(butterfat),
+    se = sd(butterfat)/sqrt(n())
+  ) %>%
+  mutate(breed = fct_reorder(factor(breed), desc(mean)))-> cow_means
+
+ggplot(cow_means, aes(x = breed, y = mean, ymin = mean - 1.96*se, ymax = mean + 1.96*se)) +
+  geom_col(fill = "#56B4E9", alpha = 0.7, width = 0.7) +
+  #geom_linerange(size = 0.75) +
+  geom_errorbar(size = 0.5, width = 0.1) +
+  scale_x_discrete(
+    labels = c("Jersey", "Guernsey", "Ayrshire", "Holstein-\nFriesian"),
+    name = NULL
+  ) +
+  scale_y_continuous(
+    name = "mean butterfat contents", expand = c(0, 0),
+    labels = scales::percent_format(accuracy = 1, scale = 1)
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid() +
+  theme(axis.line.x = element_blank())
+```
+
+(ref:median-age-income) Median income versus median age for 67 counties in Pennsylvania. Error bars represent 90% confidence intervals. Data source: 2015 Five-Year American Community Survey
+
+```{r median-age-income, fig.width = 5, fig.asp = 3/4, fig.cap = '(ref:median-age-income)'}
+filter(US_income_age, state == "Pennsylvania") %>%
+  ggplot(aes(age, income)) + 
+  geom_errorbarh(
+    aes(xmin = age - age.moe, xmax = age + age.moe),
+    height = 0,
+    color = "#0072B2"
+  ) +
+  geom_errorbar(
+    aes(ymin = income - income.moe, ymax = income + income.moe),
+    width = 0,
+    color = "#0072B2"
+  ) +
+  geom_point(color = "#0072B2", size = 0.7) +
+  scale_x_continuous(name = "median age (years)") +
+  scale_y_continuous(
+    name = "median income (USD)",
+    labels = scales::dollar
+  ) +
+  theme_dviz_open()
+```
+
+Let's return to the topic of frequentists and Bayesians. Frequentists assess uncertainty with confidence intervals, whereas Bayesians calculate *posterior distributions* and *credible intervals.* The Bayesian posterior distribution tells us how likely specific parameter estimates are given the input data. The credible interval indicates a range of values in which the parameter value is expected with a given probability, as calculated from the posterior distribution. For example, a 95% credible interval corresponds to the center 95% of the posterior distribution. The true parameter value has a 95% chance of lying in the 95% credible interval.
+
+If you are not a statistician you may be surprised by my definition of a credible interval. You may have thought that it was actually the definition of a confidence interval. It is not. A Bayesian credible interval tells you about where the true parameter likely is and a frequentist confidence interval tells you about where the true parameter likely not is. While this distinction may seem like semantics, there are important conceptual differences between the two approaches. Under the Bayesian approach, you use the data and your prior knowledge about the system under study (called the *prior*) to calculate a probability distribution (the posterior) that tells you where you can expect the true parameter value to lie. By contrast, under the frequentist approach, you first make an assumption that you intend to disprove. This assumption is called the *null hypothesis*, and it is often simply the assumption that the parameter equals zero (e.g., there is no difference between two conditions). You then calculate the probability that random sampling would generate data similar to what was observed if the null hypothesis were true. The confidence interval is a representation of this probability. If a given confidence interval excludes the parameter value under the null hypothesis (i.e., the value zero), then you can reject the null hypothesis at that confidence level. Alternatively, you can think of a confidence interval as an interval that captures the true parameter value with the specified likelihood under repeated sampling (Figure \@ref(fig:ci-frequentist-expl)). Thus, if the true parameter value were zero, a 95% confidence interval would only exclude zero in 5% of the samples analyzed.
+
+(ref:ci-frequentist-expl) Frequency interpretation of a confidence interval. Confidence intervals (CIs) are best understood in the context of repeated sampling. For each sample, a specific confidence interval either includes or excludes the true parameter, here the mean. However, if we sample repeatedly, then the confidence intervals (shown here are 68% confidence intervals, corresponding to sample mean +/- standard error) include the true mean approximately 68% of the time.
+
+```{r ci-frequentist-expl, fig.asp = 1, fig.cap = '(ref:ci-frequentist-expl)'}
+set.seed(85439)
+df <- data.frame(y = rnorm(10000))
+df_cont <- data.frame(
+  x = c(seq(-3, 3, by = 0.02), -3)
+) %>%
+  mutate(
+    y = dnorm(x),
+    ny = y/max(y)
+  )
+
+spl <- sampler(10, 5, seed = 9382)
+
+ggplot(df, aes(y = y)) +
+  geom_polygon(data = df_cont, aes(1.5*ny + 10.5, x), fill = "lightblue") +
+  geom_hline(yintercept = 0, linetype = 2, size = 0.5) +
+  geom_point(data = spl, aes(x = .draw), size = 2,
+             shape = 21, fill = "lightblue") +
+  stat_summary(
+    data = spl, aes(x = .draw, color = ifelse(stat(ymax) < 0 | stat(ymin) > 0, "outside", "inside")),
+    geom = "errorbar", width = 0.2, size = 0.75,
+    position = position_nudge(x = -.15)
+  ) +
+  stat_summary(
+    data = spl, aes(x = .draw, color = ifelse(stat(ymax) < 0 | stat(ymin) > 0, "outside", "inside")),
+    geom = "point", size = 2.5, position = position_nudge(x = -.15)
+  ) +
+  annotate(x = 11.7, y = 1, geom = "text", label = "population", family = dviz_font_family,
+           size = 14/.pt, hjust = 0) +
+  annotate(x = 11.1, y = 0.05, geom = "text", label = "mean", family = dviz_font_family,
+           size = 12/.pt, hjust = 0) +
+  annotate(x = 10.04, y = -Inf, geom = "text", label = "samples", family = dviz_font_family,
+           size = 14/.pt, hjust = 0, vjust = 0) +
+  annotate(x = 6.9, y = -0.02, geom = "text", label = "CI excludes true mean",
+           family = dviz_font_family, size = 12/.pt, hjust = 1, vjust = 1) +
+  annotate(x = 8.87, y = 0.23, geom = "text", label = "CI includes true mean",
+           family = dviz_font_family, size = 12/.pt, hjust = 0, vjust = 1) +
+  scale_color_manual(values = c("#009E73", "#D55E00"), guide = "none") +
+  coord_flip() +
+  scale_x_continuous(breaks = 1:10, labels = as.character(10:1), name = NULL, expand = c(0.02, 0)) +
+  scale_y_continuous(breaks = NULL, name = NULL, limits = c(-3, 3), expand = c(0, 0)) +
+  theme_dviz_hgrid() +
+  theme(axis.text.y = element_text(vjust = 0.5))
+```
+
+To summarize, a Bayesian credible interval makes a statement about the true parameter value and a frequentist confidence interval makes a statement about the null hypothesis. In practice, however, Bayesian and frequentist estimates are often quite similar (Figure \@ref(fig:bayes-vs-ols)). Once conceptual advantage of the Bayesian approach is that it emphasizes thinking about the magnitude of an effect, whereas the frequentist thinking emphasizes a binary perspective of an effect either existing or not. 
+
+(ref:bayes-vs-ols) Comparison of frequentist confidence intervals and Bayesian credible intervals for mean chocolate ratings. We see that both approaches yield similar but not exactly identical results. In particular, the Bayesian estimates display a small amount of shrinkage, which is an adjustment of the most extreme parameter estimates towards the overall mean. (Note how the Bayesian estimate for Switzerland is slightly moved to the left and the Bayesian estimate for Peru is slightly moved to the right relative to the respective frequentist estimates.) The frequentist estimates and confidence intervals shown here are identical to the results for 95% confidence shown in Figure \@ref(fig:mean-chocolate-ratings). 
+
+```{r bayes-vs-ols, fig.width = 5*6/4.2, fig.asp = 0.6, fig.cap = '(ref:bayes-vs-ols)', eval=FALSE}
+# Error: Error in model.frame.default(Terms, newdata, xlev = object$xlevels) : factor location has new levels US
+
+linear_results <-
+  lm(rating ~ location, data = cacao_small) %>% 
+  emmeans(~ location) %>% 
+  tidy() %>%
+  mutate(model = "OLS")
+
+# store these separately, will need them again
+bayes_emmeans <- cacao_mcmc %>%
+  emmeans(~ location) %>%
+  gather_emmeans_draws()
+
+bayes_results <- bayes_emmeans %>%
+  mean_qi() %>%
+  to_broom_names() %>%
+  mutate(model = "Bayes")
+
+bind_rows(linear_results, bayes_results) %>%
+  mutate(model = factor(model, levels = c("Bayes", "OLS"))) %>%
+  ggplot(aes(x = estimate, y = reorder(location, estimate), xmin = conf.low, xmax = conf.high, color = model)) +
+  ggplot2::geom_errorbarh(position = ggstance::position_dodgev(height = .7), height = 0.2) +
+  geom_point(position = ggstance::position_dodgev(height = .7), size = 2.5) +
+  scale_x_continuous(
+    limits = c(2.6, 3.6),
+#    expand = c(0, 0),
+    name = "mean rating"
+  ) +
+  scale_y_discrete(name = NULL) +
+  scale_color_manual(
+    name = NULL,
+    values = c(
+      OLS = "grey40",
+      Bayes = desaturate(darken("#0072B2", .2), 0.1)
+    ),
+    breaks = c("OLS", "Bayes"),
+    labels = c("95% confidence interval", "95% credible interval")
+    #guide = guide_legend(direction = "horizontal")
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_hgrid(14, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.ticks.x = element_line(color = "black"),
+    axis.title.x = element_text(hjust = 1),
+    legend.position = c(1, 0.013),
+    legend.justification = c(1, 0),
+    legend.key.height = grid::unit(15, "pt"),
+    legend.key.width = grid::unit(28, "pt"),
+    legend.spacing.x = grid::unit(3.5, "pt"),
+    legend.spacing.y = grid::unit(14, "pt"),
+    legend.box.background = element_rect(fill = "white", color = NA),
+    legend.box.spacing = grid::unit(0, "pt"),
+    legend.title.align = 0.5
+  )
+```
+
+
+```{block type='rmdtip', echo=TRUE}
+A Bayesian credible interval answers the question: "Where do we expect the true parameter value to lie?" A frequentist confidence interval answers the question: "How certain are we that the true parameter value is not zero?" 
+```
+
+The central goal of Bayesian estimation is to obtain the posterior distribution. Therefore, Bayesians commonly visualize the entire distribution rather than simplifying it into a credible interval. In terms of data visualization, therefore, all the approaches to visualizing distributions discussed in Chapters \@ref(histograms-density-plots), \@ref(ecdf-qq), and \@ref(boxplots-violins) are applicable. Specifically, histograms, density plots, boxplots, violins, and ridgeline plots are all commonly used to visualize Bayesian posterior distributions. Since these approaches have been discussed at length in their specific chapters, I will here show only one example, using a ridgeline plot to show Bayesian posterior distributions of mean chocolate ratings (Figure \@ref(fig:bayes-ridgeline)). In this specific case, I have added shading under the curve to indicate defined regions of posterior probabilities. As alternative to shading, I could also have drawn quantile dotplots, or I could have added graded error bars underneath each distribution. Ridgeline plots with error bars underneath are called half eyes, and violin plots with error bars are called eye plots (Chapter \@ref(directory-uncertainty)).
+
+(ref:bayes-ridgeline) Bayesian posterior distributions of mean chocolate bar ratings, shown as a ridgeline plot. The red dots represent the medians of each posterior distribution. Because it is difficult to convert a continuous distribution into specific confidence regions by eye, I have added shading under each curve to indicate the center 80%, 95%, and 99% of each posterior distribution.
+
+```{r bayes-ridgeline, fig.width = 5*6/4.2, fig.asp = 0.6, fig.cap = '(ref:bayes-ridgeline)', eval=FALSE}
+bayes_emmeans %>%
+  ggplot(aes(.value, reorder(location, .value))) +
+  geom_density_ridges_gradient(
+    aes(fill = stat(quantile)),
+    quantiles = c(0.005, 0.025, 0.1, 0.9, 0.975, 0.995),
+    calc_ecdf = TRUE,
+    scale = 1.5,
+    color = darken("#0072B2", .4),
+    size = 0.3,
+    rel_min_height = 0.005
+  ) +
+  geom_point(
+    stat = ggstance:::StatSummaryh,
+    fun.x = median,
+    size = 2.5, color = "#D55E00"
+  ) +
+  scale_x_continuous(
+#    expand = c(0, 0),
+    name = "mean rating"
+  ) +
+  scale_y_discrete(name = NULL) +
+  scale_fill_manual(
+    name = "posterior prob.",
+    values = c(
+      "#00000000",
+      "#81A7D6A0", # desaturate(lighten("#0072B2", .4), .3)
+      "#508CC6A0", # desaturate(lighten("#0072B2", .2), .1)
+      "#035B8FA0", # darken("#0072B2", .2)
+      "#508CC6A0",
+      "#81A7D6A0",
+      "#00000000"
+    ),
+    breaks = c(4, 3, 2),
+    labels = c("80%", "95%", "99%"),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom",
+      override.aes = list(color = NA)
+    )
+  ) +
+  coord_cartesian(xlim = c(2.6, 3.6), clip = "off") +
+  theme_dviz_hgrid(14, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.ticks.x = element_line(color = "black"),
+    axis.title.x = element_text(hjust = 1),
+    legend.position = c(1, 0.013),
+    legend.justification = c(1, 0),
+    legend.key.height = grid::unit(14, "pt"),
+    legend.key.width = grid::unit(35, "pt"),
+    legend.spacing.x = grid::unit(7, "pt"),
+    legend.spacing.y = grid::unit(3.5, "pt"),
+    legend.box.background = element_rect(fill = "white", color = NA),
+    legend.box.spacing = grid::unit(0, "pt"),
+    legend.title.align = 0.5
+  )
+```
+
+
+## Visualizing the uncertainty of curve fits {#uncertainty-curve-fits}
+
+In Chapter \@ref(visualizing-trends), we discussed how to show a trend in a dataset by fitting a straight line or curve to the data. These trend estimates also have uncertainty, and it is customary to show the uncertainty in a trend line with a confidence band (Figure \@ref(fig:blue-jays-male-conf-band)). The confidence band provides us with a range of different fit lines that would be compatible with the data. When students encounter a confidence band for the first time, they are often surprised that even a perfectly straight line fit produces a confidence band that is curved. The reason for the curvature is that the straight line fit can move in two distinct directions: it can move up and down (i.e., have different intercepts), and it can rotate (i.e., have different slopes). We can visually show how the confidence band arises by drawing a set of alternative fit lines randomly generated from the posterior distribution of the fit parameters. This is done in Figure \@ref(fig:blue-jays-male-fitted-draws), which shows 15 randomly chosen alternative fits. We see that even though each line is perfectly straight, the combination of different slopes and intercepts of each line generates an overall shape that looks just like the confidence band.
+
+(ref:blue-jays-male-conf-band) Head length versus body mass for male blue jays, as in Figure \@ref(fig:blue-jays-scatter-line). The straight blue line represents the best linear fit to the data, and the gray band around the line shows the uncertainty in the linear fit. The gray band represents a 95% confidence level. Data source: Keith Tarvin, Oberlin College
+
+```{r blue-jays-male-conf-band, fig.width = 5.5, fig.asp = 3/4, fig.cap = '(ref:blue-jays-male-conf-band)'}
+blue_jays_male <- filter(blue_jays, KnownSex == "M")
+
+fit <- gam(Head ~ Mass, data = blue_jays_male, method = "REML")
+
+newdata <- data.frame(Mass = seq(59, 82, length.out = 100))
+
+sample_df <- sample_outcomes(fit, newdata, 15, unconditional = TRUE)
+ci_df <- confidence_band(fit, newdata, unconditional = TRUE)
+
+ggplot(blue_jays_male, aes(Mass, Head)) + 
+  geom_ribbon(data = ci_df, aes(ymin = lo, ymax = hi), fill="grey70", color = NA, alpha = 1/2) +
+  geom_point(color = "grey60", size = 1.5) +
+  #geom_line(data = sample_df, aes(group = .draw), color = "#0072B2", size = 0.3) +
+  geom_line(data = ci_df, color = "#0072B2", size = 1) +
+  scale_x_continuous(
+    limits = c(59, 82),
+    expand = c(0, 0),
+    name = "body mass (g)") +
+  scale_y_continuous(
+    limits = c(52, 61),
+    expand = c(0, 0),
+    name = "head length (mm)"
+  ) +
+  theme_dviz_open()
+```
+
+(ref:blue-jays-male-fitted-draws) Head length versus body mass for male blue jays. In contrast to Figure  \@ref(fig:blue-jays-male-conf-band), the straight blue lines now represent equally likely alternative fits randomly drawn from the posterior distribution. Data source: Keith Tarvin, Oberlin College
+
+```{r blue-jays-male-fitted-draws, fig.width = 5.5, fig.asp = 3/4, fig.cap = '(ref:blue-jays-male-fitted-draws)'}
+
+ggplot(blue_jays_male, aes(Mass, Head)) + 
+  geom_ribbon(data = ci_df, aes(ymin = lo, ymax = hi), fill="grey70", color = NA, alpha = 1/2) +
+  geom_point(color = "grey60", size = 1.5) +
+  geom_line(data = sample_df, aes(group = .draw), color = "#0072B2", size = 0.3) +
+  #geom_line(data = ci_df, color = "#0072B2", size = 1) +
+  scale_x_continuous(
+    limits = c(59, 82),
+    expand = c(0, 0),
+    name = "body mass (g)") +
+  scale_y_continuous(
+    limits = c(52, 61),
+    expand = c(0, 0),
+    name = "head length (mm)"
+  ) +
+  theme_dviz_open()
+
+```
+
+To draw a confidence band, we need to specify a confidence level, and just as we saw for error bars and posterior probabilities, it can be useful to highlight different levels of confidence. This leads us to the graded confidence band, which shows several confidence levels at once (Figure \@ref(fig:blue-jays-male-graded-conf-band)). A graded confidence band enhances the sense of uncertainty in the reader, and it forces the reader to confront the possibility that the data might support different alternative trend lines.
+
+(ref:blue-jays-male-graded-conf-band) Head length versus body mass for male blue jays. As in the case of error bars, we can draw graded confidence bands to highlight the uncertainty in the estimate. Data source: Keith Tarvin, Oberlin College
+
+```{r blue-jays-male-graded-conf-band, fig.width = 5.5, fig.asp = 3/4, fig.cap = '(ref:blue-jays-male-graded-conf-band)'}
+ci_99_df <- confidence_band(fit, newdata, level = 0.99, unconditional = TRUE)
+ci_80_df <- confidence_band(fit, newdata, level = 0.80, unconditional = TRUE)
+
+ggplot(blue_jays_male, aes(Mass, Head)) + 
+  geom_ribbon(
+    data = ci_99_df,
+    aes(ymin = lo, ymax = hi, fill = "99%"),
+    color = NA
+  ) +
+  geom_ribbon(
+    data = ci_df,
+    aes(ymin = lo, ymax = hi, fill = "95%"),
+    color = NA
+  ) +
+  geom_ribbon(
+    data = ci_80_df,
+    aes(ymin = lo, ymax = hi, fill = "80%"),
+    color = NA
+  ) +
+  geom_point(color = "grey40", size = 1.5) +
+  geom_line(data = ci_df, color = darken("#0072B2", .4), size = 1) +
+  scale_fill_manual(
+    name = "confidence level",
+    values = c(
+     `80%` = desaturate(lighten("#0072B2", .4), .3),
+     `95%` = desaturate(lighten("#0072B2", .6), .3),
+     `99%` = desaturate(lighten("#0072B2", .8), .3)
+    ),
+    guide = guide_legend(
+      direction = "horizontal",
+      title.position = "top",
+      label.position = "bottom"
+    )
+  ) +
+  scale_x_continuous(
+    limits = c(59, 82),
+    expand = c(0, 0),
+    name = "body mass (g)"
+  ) +
+  scale_y_continuous(
+    limits = c(52, 61),
+    expand = c(0, 0),
+    name = "head length (mm)"
+  ) +
+  theme_dviz_open() +
+  theme(
+    legend.position = c(1, .01),
+    legend.justification = c(1, 0),
+    legend.key.height = grid::unit(12, "pt"),
+    legend.key.width = grid::unit(30, "pt"),
+    legend.spacing.x = grid::unit(6, "pt"),
+    legend.spacing.y = grid::unit(3, "pt"),
+    legend.box.background = element_rect(fill = "white", color = NA),
+    legend.box.spacing = grid::unit(0, "pt"),
+    legend.title = element_text(size = 12, hjust = 0.5)
+  )
+```
+
+We can also draw confidence bands for non-linear curve fits. Such confidence bands look nice but can be difficult to interpret (Figure \@ref(fig:mpg-uncertain)). If we look at Figure \@ref(fig:mpg-uncertain)a, we may think that the confidence band arises by moving the blue line up and down and maybe deforming it slightly. However, as Figure \@ref(fig:mpg-uncertain)b reveals, the confidence band represents a family of curves that are all quite a bit more wiggly than the overall best fit shown in part (a). This is a general principle of non-linear curve fits. Uncertainty corresponds not just to a movement of the curve up and down but also to increased wiggliness. 
+
+(ref:mpg-uncertain) Fuel efficiency versus displacement, for 32 cars (1973–74 models). Each dot represents one car, and the smooth lines were obtained by fitting a cubic regression spline with 5 knots. (a) Best fit spline and confidence band. (b) Equally likely alternative fits drawn from the posterior distribution. Data source: Motor Trend, 1974.
+
+```{r mpg-uncertain, fig.width = 5.5*6/4.2, fig.asp = 3/8, fig.cap='(ref:mpg-uncertain)'}
+set.seed(8692282)
+
+fit <- gam(mpg ~ s(disp, bs = 'cr', k = 5), data = mtcars, method = "REML")
+#fit <- gam(mpg ~ s(disp, bs = 'ts', k = 6), data = mtcars, method = "REML")
+
+newdata <- data.frame(disp = seq(min(mtcars$disp), max(mtcars$disp), length.out = 100))
+sample_df <- sample_outcomes(fit, newdata, 10, unconditional = TRUE)
+ci_df <- confidence_band(fit, newdata, unconditional = TRUE)
+
+cars_base <- ggplot(mtcars, aes(x = disp, y = mpg)) + 
+  scale_x_continuous(
+    name = "displacement (cu. in.)",
+    expand = c(0.01, 0)
+  ) +
+  ylab("fuel efficiency (mpg)") +
+  theme_dviz_grid(12) +
+  theme(plot.margin = margin(6, 1.5, 3, 1.5))
+
+p1 <- cars_base +
+  geom_ribbon(data = ci_df, aes(ymin = lo, ymax = hi), fill="grey70", color = NA, alpha = 1/2) +
+  geom_point(color = "grey60") +
+  geom_line(data = ci_df, color = "#0072B2", size = 1)
+
+p2 <- cars_base +
+  geom_ribbon(data = ci_df, aes(ymin = lo, ymax = hi), fill="grey70", color = NA, alpha = 1/2) +
+  geom_point(color = "grey60") +
+  geom_line(data = sample_df, aes(group = .draw), color = "#0072B2", size = 0.3)
+
+plot_grid(
+  p1, NULL, p2, align = 'hv',
+  nrow = 1,
+  labels = c("a", "", "b"),
+  rel_widths = c(1, .02, 1)
+)
+
+```
+
+
+
+## Hypothetical outcome plots
+
+All static visualizations of uncertainty suffer from the problem that viewers may interpret some aspect of the uncertainty visualization as a deterministic feature of the data (deterministic construal error). We can avoid this problem by visualizing uncertainty through animation, by cycling through a number of different but equally likely plots. This kind of a visualization is called a hypothetical outcome plot [@Hullman_et_al_2015] or HOP. While HOPs are not possible in a print medium, they can be very effective in online settings where animated visualizations can be provided in the form of GIFs or MP4 videos. HOPs can also work well in the context of an oral presentation.
+
+To illustrate the concept of a HOP, let's go back once more to chocolate bar ratings. When you are standing in the grocery store thinking about buying some chocolate, you probably don't care about the mean flavor rating and associated uncertainty for certain groups of chocolate bars. Instead, you might want to know the answer to a simpler question, such as: If I randomly pick up a Canadian and a U.S. manufactured chocolate bar, which one of the two should I expect to taste better? To arrive at  an answer to this question, we could randomly select a Canadian and a U.S. bar from the dataset, compare their ratings, record the outcome, and then repeat this process many times. If we did this, we would find that in approximately 53% of the cases the Canadian bar will be ranked higher, and in 47% of the cases either the U.S. bar is ranked higher or the two bars are tied. We can show this process visually by cycling between several of these random draws and showing the relative ranking of the two bars for each draw (Figure \@ref(fig:chocolate-HOP-static)/Figure \@ref(fig:chocolate-HOP-animated)).
+
+(ref:chocolate-HOP-static) (for print edition) Schematic of a hypothetical outcome plot for chocolate bar ratings of Canadian and U.S. manufactured bars. Each vertical green bar represents the rating for one bar, and each panel shows a comparison of two randomly chosen bars, one each from a Canadian manufacturer and a U.S. manufacturer. In an actual hypothetical outcome plot, the display would cycle between the distinct plot panels instead of showing them side-by-side.
+
+```{r chocolate-HOP-static, fig.width = 5.5*6/4.2, fig.asp = 0.6, fig.cap = '(ref:chocolate-HOP-static)'}
+cacao %>% 
+  filter(location %in% c("Canada", "U.S.A.")) %>%
+  mutate(location = fct_recode(location, US = "U.S.A.")) -> cacao_US_CA
+
+set.seed(49323)
+n <- 9
+CA_ratings <- sample_n(filter(cacao_US_CA, location == "Canada"), n, replace = TRUE) %>%
+  mutate(.draw = 1:n())
+US_ratings <- sample_n(filter(cacao_US_CA, location == "US"), n, replace = TRUE) %>%
+  mutate(.draw = 1:n())
+
+sample_df <- rbind(CA_ratings, US_ratings) %>%
+  mutate(location = fct_relevel(location, "US", "Canada"))
+
+ggplot(sample_df) +
+  geom_segment(
+    aes(
+      x = rating, xend = rating,
+      y = as.integer(location) - 0.35,
+      yend = as.integer(location) + 0.35
+    ),
+    size = 1.5, color = darken("#009E73", .3)
+  ) +
+  scale_x_continuous(
+    limits = c(1.95, 4.1),
+    expand = c(0, 0),
+    name = "chocolate flavor rating"
+  ) +
+  scale_y_discrete(
+    name = NULL,
+    limits = c("US", "Canada"),
+    expand = c(0, 0.25)
+  ) +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.ticks.x = element_line(color = "black"),
+    #axis.title.x = element_text(hjust = 1),
+    axis.line.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    strip.text = element_blank()
+  ) + 
+  panel_border() +
+  facet_wrap(~.draw, scales = "free_x")
+```
+
+(ref:chocolate-HOP-animated) (for online edition) Hypothetical outcome plot for chocolate bar ratings of Canadian and U.S. manufactured bars. Each vertical green bar represents the rating for one bar. The animation cycles through different cases of two randomly chosen bars, one each from a Canadian manufacturer and a U.S. manufacturer.
+
+```{r chocolate-HOP-animated, eval = animate, gganimate = list(nframes = 200), fig.asp = 0.6, fig.retina = 1, fig.cap = '(ref:chocolate-HOP-animated)'}
+library(gganimate)
+
+set.seed(49316)
+n <- 30
+
+CA_ratings <- sample_n(filter(cacao_US_CA, location == "Canada"), n, replace = TRUE) %>%
+  mutate(.draw = 1:n())
+US_ratings <- sample_n(filter(cacao_US_CA, location == "US"), n, replace = TRUE) %>%
+  mutate(.draw = 1:n())
+
+sample_df <- rbind(CA_ratings, US_ratings) %>%
+  mutate(location = fct_relevel(location, "US", "Canada"))
+
+ggplot(sample_df) +
+  geom_segment(
+    aes(
+      x = rating, xend = rating,
+      y = as.integer(location) - 0.35,
+      yend = as.integer(location) + 0.35,
+      group = .draw
+    ),
+    size = 1.5, color = darken("#009E73", .3)
+  ) +
+  scale_x_continuous(
+    limits = c(1.95, 4.1),
+    expand = c(0, 0),
+    name = "chocolate flavor rating"
+  ) +
+  scale_y_discrete(
+    name = NULL,
+    limits = c("US", "Canada"),
+    expand = c(0, 0.25)
+  ) +
+  theme_dviz_hgrid() +
+  theme(
+    axis.line.x = element_line(color = "black"),
+    axis.ticks.x = element_line(color = "black"),
+    axis.title.x = element_text(hjust = 1),
+    axis.line.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    strip.text = element_blank()
+  ) + 
+  #panel_border() +
+  transition_states(.draw, 1, 2)
+```
+
+As a second example, consider the variation in shapes among equally probable trendlines in Figure \@ref(fig:mpg-uncertain)b. Because all trendlines are plotted on top of one another, we primarily perceive the overall area that is covered by trendlines, which is similar to the confidence band. Perceiving individual trendlines is difficult. By turning this figure into a HOP, we can highlight individual trendlines one at a time (Figure \@ref(fig:mpg-uncertain-HOP-static)/Figure \@ref(fig:mpg-uncertain-HOP-animated)).
+
+(ref:mpg-uncertain-HOP-static) (for print edition) Schematic of a hypothetical outcome plot for fuel efficiency versus displacement. Each dot represents one car, and the smooth lines were obtained by fitting a cubic regression spline with 5 knots. Each line in each panel represents one alternative fit outcome, drawn from the posterior distribution of the fit parameters. In an actual hypothetical outcome plot, the display would cycle between the distinct plot panels instead of showing them side-by-side.
+
+
+```{r mpg-uncertain-HOP-static, fig.width = 5.5*6/4.2, fig.asp = 2/4, fig.cap = '(ref:mpg-uncertain-HOP-static)'}
+#set.seed(8692282)
+set.seed(8692276)
+
+fit <- gam(mpg ~ s(disp, bs = 'cr', k = 5), data = mtcars, method = "REML")
+
+newdata <- data.frame(disp = seq(min(mtcars$disp), max(mtcars$disp), length.out = 100))
+sample_df <- sample_outcomes(fit, newdata, 6, unconditional = TRUE)
+
+ggplot(mtcars, aes(x = disp, y = mpg)) + 
+  scale_x_continuous(
+    name = "displacement (cu. in.)",
+    expand = c(0.03, 0)
+  ) +
+  scale_y_continuous(
+    name = "fuel efficiency (mpg)",
+    limits = c(8.5, 35),
+    expand = c(0, 0)
+  ) +
+  geom_point(color = "grey60") +
+  geom_line(data = sample_df, color = "#0072B2", size = 0.5) +
+  facet_wrap(~.draw, scales = "free") + 
+  theme_dviz_grid(12) +
+  theme(
+    strip.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.ticks.length = unit(0, "pt"),
+    plot.margin = margin(6, 1.5, 3, 1.5)
+  ) +
+  panel_border()
+```
+
+(ref:mpg-uncertain-HOP-animated) (for online edition) Hypothetical outcome plot for fuel efficiency versus displacement. Each dot represents one car, and the smooth lines were obtained by fitting a cubic regression spline with 5 knots. The animation cycles through different alternative fit outcomes drawn from the posterior distribution of the fit parameters.
+
+```{r mpg-uncertain-HOP-animated, eval = animate, fig.width = 5.5, fig.asp = 3/4, fig.retina = 1, fig.cap = '(ref:mpg-uncertain-HOP-animated)'}
+library(gganimate)
+
+#set.seed(8692282)
+set.seed(8692276)
+
+fit <- gam(mpg ~ s(disp, bs = 'cr', k = 5), data = mtcars, method = "REML")
+
+newdata <- data.frame(disp = seq(min(mtcars$disp), max(mtcars$disp), length.out = 100))
+sample_df <- sample_outcomes(fit, newdata, 20, unconditional = TRUE)
+
+ggplot(mtcars, aes(x = disp, y = mpg)) + 
+  scale_x_continuous(
+    name = "displacement (cu. in.)",
+    expand = c(0.03, 0)
+  ) +
+  scale_y_continuous(
+    name = "fuel efficiency (mpg)",
+    limits = c(8.5, 35),
+    expand = c(0, 0)
+  ) +
+  geom_point(color = "grey60") +
+  geom_line(data = sample_df, aes(group = .draw), color = "#0072B2", size = 0.5) +
+  theme_dviz_grid() +
+  theme(
+    strip.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.ticks.length = unit(0, "pt"),
+    plot.margin = margin(7, 1.5, 3.5, 1.5)
+  ) +
+  panel_border() +
+  transition_states(.draw, 0, 1)
+```
+
+When preparing a HOP, you may wonder whether it is better to make a hard switch between different outcomes (as in a slide projector) or rather smoothly animate from one outcome to the next (e.g., slowly deform the trendline for one outcome until it looks like the trendline for another outcome). While this is to some extent an open question that continues to be researched, some evidence indicates that smooth transitions make it harder to judge about the probabilities represented [@Kale_et_al_2018]. If you consider animating between outcomes, you may want to at least make these animations very fast, or choose an animation style where outcomes fade in and out rather than deform from one to the other. 
+
+There is one critical aspect we need to pay attention to when preparing a HOP: We need to make sure that the outcomes we do show are representative of the true distribution of possible outcomes. Otherwise, our HOP could be rather misleading. For example, going back to the case of chocolate ratings, if I randomly selected ten outcome pairs of chocolate bars and among those the U.S. bar was rated higher than the Canadian bar in seven cases, then the HOP would erroneously create the impression that U.S. bars tend to be higher rated than Canadian bars. We can prevent this issue either by choosing a very large number of outcomes, so sampling biases are unlikely, or by verifying in some form that the outcomes that are shown are appropriate. When making Figure \@ref(fig:chocolate-HOP-static)/Figure \@ref(fig:chocolate-HOP-animated), I verified that the number of times the Canadian bar was shown winning was close to the true percentage of 53%.

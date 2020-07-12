@@ -1,0 +1,479 @@
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+# run setup script
+source("_common.R")
+
+library(forcats)
+library(stringr)
+library(ggridges)
+```
+
+# Multi-panel figures {#multi-panel-figures}
+
+When datasets become large and complex, they often contain much more information than can reasonably be shown in a single figure panel. To visualize such datasets, it can be helpful to create multi-panel figures. These are figures that consist of multiple figure panels where each one shows some subset of the data. There are two distinct categories of such figures: 1. Small multiples are plots consisting of multiple panels arranged in a regular grid. Each panel shows a different subset of the data but all panels use the same type of visualization. 2. Compound figures consist of separate figure panels assembled in an arbitrary arrangement (which may or may not be grid based) and showing entirely different visualizations, or possibly even different datasets. 
+
+We have encountered both types of multi-panel figures in many places throughout this book. In general, these figures are intuitive and straightforward to interpret. However, when preparing such figures, there are a few issues we need to pay attention to, such as appropriate axis scaling, alignment, and consistency between separate panels.
+
+## Small multiples
+
+The term "small multiple" was popularized by @TufteEnvisioning. An alternative term, "trellis plot", was popularized around the same time by Cleveland, Becker, and colleagues at Bell Labs [@Cleveland1993; @Becker-Cleveland-Shyu-1996]. Regardless of terminology, the key idea is to slice the data into parts according to one or more data dimensions, visualize each data slice separately, and then arrange the individual visualizations into a grid. Columns, rows, or individual panels in the grid are labeled by the values of the data dimensions that define the data slices. More recently, this technique is also sometimes referred to as "faceting", named after the methods that create such plots in the widely used ggplot2 plot library (e.g., `facet_grid()`, see @Wickham2016).
+
+As a first example, we will apply this technique to the dataset of Titanic passengers. We can subdivide this dataset by the class in which each passenger travelled and by whether a passenger survived or not. Within each of these six slices of data, there are both male and female passengers, and we can visualize their numbers using bars. The result is six bar plots, which we arrange in two columns (one for passengers who died and one for those who survived) of three rows (one for each class) (Figure \@ref(fig:titanic-passenger-breakdown)). The columns and rows are labeled, so it is immediately clear which of the six plots corresponds to which combination of survival status and class.
+
+(ref:titanic-passenger-breakdown) Breakdown of passengers on the Titanic by gender, survival, and class in which they traveled (1st, 2nd, or 3rd).
+
+```{r titanic-passenger-breakdown, fig.width = 5, fig.asp = 3/4, fig.cap = '(ref:titanic-passenger-breakdown)'}
+titanic %>% mutate(surv = ifelse(survived == 0, "died", "survived")) %>%
+  ggplot(aes(sex, fill = sex)) + geom_bar() +
+    facet_grid(class ~ surv, scales = "free_x") +
+    scale_x_discrete(name = NULL) + 
+    scale_y_continuous(limits = c(0, 195), expand = c(0, 0)) +
+    scale_fill_manual(values = c("#D55E00D0", "#0072B2D0"), guide = "none") +
+    theme_dviz_hgrid(rel_small = 1) +
+    theme(
+      axis.line = element_blank(),
+      axis.ticks.length = grid::unit(0, "pt"),
+      axis.ticks = element_blank(),
+      axis.text.x = element_text(margin = margin(7, 0, 0, 0)),
+      strip.text = element_text(margin = margin(3.5, 3.5, 3.5, 3.5)),
+      strip.background  = element_rect(
+        fill = "grey85", colour = "grey85",
+        linetype = 1, size = 0.25
+      ),
+      panel.border = element_rect(
+        colour = "grey85", fill = NA, linetype = 1,
+        size = 1.)
+      )
+```
+
+This visualization provides an intuitive and highly interpretable visualization of the fate of the Titanic passengers. We see clearly that most men died and most women survived. Further, and among the women who died nearly all were traveling in 3rd class.
+
+Small multiples are a powerful tool to visualize very large amounts of data at once. Figure \@ref(fig:titanic-passenger-breakdown) uses six separate panels, but we can use many more. Figure \@ref(fig:movie-rankings) shows the relationship between the average ranking of a movie on the Internet Movie Database (IMDB) and the number of votes the movie has received, separately for movies released over a 100 year time period. Here, the dataset is sliced by only one dimension, the year, and panels for each year are arranged in rows from top left to bottom right. This visualization shows that there is an overall relationship between average ranking and number of votes, such that movies with more votes tend to have higher rankings. However, the strength of this trend varies with year, and for movies released in the early 2000s there is no relationship or even a negative one.
+
+(ref:movie-rankings) Average movie rankings versus number of votes, for movies from 1906 to 2005. Dots represent individual movies, and lines represent the linear regression of the average ranking of each movie versus the logarithm of the number of votes the movie has received. In most years, movies with a higher number of votes have, on average, a higher average ranking. However, this trend has weakened towards the end of the 20th century, and a negative relationship can be seen for movies released in the early 2000s. Data Source: Internet Movie Database (IMDB, http://imdb.com/)
+
+```{r movie-rankings, fig.width = 5.5*6/4.2, fig.asp = 1, fig.cap = '(ref:movie-rankings)'}
+library(ggplot2movies)
+
+ggplot(filter(movies, year > 1905), aes(y = rating, x = votes)) + 
+  geom_point(color = "#0072B250", size = 0.1) + 
+  geom_smooth(
+    method = 'lm', se = FALSE, size = 1.25, color = '#D55E00',
+    fullrange = TRUE
+  ) + 
+  scale_x_log10(labels = label_log10, name = "number of votes", breaks = c(10, 1000, 100000)) + 
+  scale_y_continuous(
+    limits = c(0, 10), expand = c(0, 0),
+    breaks = c(0, 5, 10), name = "average rating"
+  ) + 
+  facet_wrap(~year, ncol = 10) +
+  theme_dviz_grid(10, rel_small = 1, line_size = 0.25) +
+  theme(
+    axis.title = element_text(size = 14),
+    axis.ticks = element_blank(),
+    axis.ticks.length = unit(0, "pt"),
+    strip.text = element_text(margin = margin(3.5, 3.5, 3.5, 3.5)),
+    panel.border = element_rect(
+      colour = "grey80", fill = NA, linetype = 1, size = 1.
+    ),
+    plot.margin = margin(3, 5, 3, 1.5)
+  )
+```
+
+For such large plots to be easily understandable, it is important that each panel uses the same axis ranges and scalings. The human mind expects this to be the case. When it is not, there is a good chance that a reader will mis-interpret what the figure shows. For example, consider Figure \@ref(fig:BA-degrees-variable-y-lims), which presents how the proportion of Bachelor's degrees in different degree areas has changed over time. The figure shows the nine degree areas that have represented, on average, more than 4% of all degrees between 1971 to 2015. The *y* axis of panel is scaled such that the curve for each degree field covers the entire *y*-axis range. As a consequence, a cursory examination of Figure \@ref(fig:BA-degrees-variable-y-lims) suggests that the nine degree areas are all equally popular and have all experienced variation in popularity of a similar magnitude.
+
+(ref:BA-degrees-variable-y-lims) Trends in Bachelor's degrees conferred by U.S. institutions of higher learning. Shown are all degree areas that represent, on average, more than 4% of all degrees. This figure is labeled as "bad" because all panels use different *y*-axis ranges. This choice obscures the relative sizes of the different degree areas and it over-exaggerates the changes that have happened in some of the degree areas. Data Source: National Center for Education Statistics
+
+```{r BA-degrees-variable-y-lims, fig.width = 5.5*6/4.2, fig.asp = 0.8, fig.cap = '(ref:BA-degrees-variable-y-lims)'}
+BA_degrees %>% 
+  mutate(field = ifelse(field == "Communication, journalism, and related programs",
+                        "Communication, journalism, and related", field)) -> BA_df
+
+BA_df %>% group_by(field) %>%
+  summarize(mean_perc = mean(perc)) %>%
+  arrange(desc(mean_perc)) -> BA_top
+
+top_fields <- filter(BA_top, mean_perc>0.04)$field
+
+BA_top_degrees <- filter(BA_df, field %in% top_fields) %>%
+  mutate(field = factor(field, levels = top_fields)) %>%
+  arrange(field)
+
+p <- ggplot(BA_top_degrees, aes(year, perc)) + 
+  geom_line(color = "#0072B2") + 
+  facet_wrap(~field, labeller = label_wrap_gen(width = 25), ncol = 3,
+             scales = "free") +
+  ylab("proportion of degrees") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = .1)) +
+  theme_dviz_hgrid() +
+  theme(strip.text = element_text(margin = margin(7, 7, 3, 7)),
+        panel.spacing.x = grid::unit(14, "pt"),
+        plot.margin = margin(3.5, 14, 3.5, 1.5)) 
+
+stamp_bad(p)
+```
+
+Placing all panels onto the same *y* axis reveals, however, that this interpretation is highly misleading (Figure \@ref(fig:BA-degrees-fixed-y-lims)). Some degree areas are much more popular than others, and similarly some areas have grown or shrunk much more than others. For example, education has declined a lot, whereas visual and performing arts have remained approximately constant or maybe seen a small increase.
+
+(ref:BA-degrees-fixed-y-lims) Trends in Bachelor's degrees conferred by U.S. institutions of higher learning. Shown are all degree areas that represent, on average, more than 4% of all degrees. Data Source: National Center for Education Statistics
+
+```{r BA-degrees-fixed-y-lims, fig.width = 5.5*6/4.2, fig.asp = 0.8, fig.cap = '(ref:BA-degrees-fixed-y-lims)'}
+ggplot(BA_top_degrees, aes(year, perc)) + 
+  geom_line(color = "#0072B2") + 
+  facet_wrap(~field, labeller = label_wrap_gen(width = 25), ncol = 3,
+             scales = "free") +
+  scale_y_continuous(
+    limits = c(0, 0.241), expand = c(0, 0),
+    name = "proportion of degrees",
+    labels = scales::percent_format(accuracy = 1)
+  ) +
+  theme_dviz_hgrid() +
+  theme(strip.text = element_text(margin = margin(7, 7, 3, 7)),
+        panel.spacing.x = grid::unit(14, "pt"),
+        plot.margin = margin(3.5, 1.5, 3.5, 1.5)) 
+
+```
+
+I generally recommend against using different axis scalings in separate panels of a small multiples plot. However, on occasion, this problem truly cannot be avoided. If you encounter such a scenario, then I think at a minimum you need to draw the reader's attention to this issue in the figure caption. For example, you could add a sentence such as: "Notice that the *y*-axis scalings differ among the different panels of this figure."
+
+It is also important to think about the ordering of the individual panels in a small multiples plot. The plot will be easier to interpret if the ordering follows some logical principle. In Figure \@ref(fig:titanic-passenger-breakdown), I arranged the rows from the highest class (1st class) to the lowest class (3rd class). In Figure \@ref(fig:movie-rankings), I arranged the panels by increasing years from the top left to the bottom right. In Figure \@ref(fig:BA-degrees-fixed-y-lims), I arranged the panels by decreasing average degree popularity, such that the most popular degrees are in the top row and/or to the left and the least popular degrees are in the bottom row and/or to the right.
+
+```{block type='rmdtip', echo=TRUE}
+Always arrange the panels in a small multiples plot in a meaningful and logical order. 
+```
+
+## Compound figures {#compound-figures}
+
+Not every figure with multiple panels fits the pattern of small multiples. Sometimes we simply want to combine several independent panels into a combined figure that conveys one overarching point. In this case, we can take the individual plots and arrange them in rows, columns, or other, more complex arrangements, and call the entire arrangement one figure. For an example, see Figure \@ref(fig:BA-degrees-compound), which continues the analysis of trends in Bachelor's degrees conferred by U.S. institutions of higher learning. Panel (a) of Figure \@ref(fig:BA-degrees-compound) shows the growth in total number of degrees awarded from 1971 to 2015, a time span during which the number of degrees awarded approximately doubled. Panel (b) instead shows the change in the percent of degrees awarded over the same time period in the five most popular degree areas. We can see that social sciences, history, and education have experienced massive declines from 1971 to 2015, whereas business and health professions have seen substantial growth.
+
+Notice how unlike in my small multiples examples, the individual panels of the compound figure are labeled alphabetically. It is conventional to use lower or upper case letters from the Latin alphabet. The labeling is needed to uniquely specify a particular panel. For example, when I want to talk about the part of Figure \@ref(fig:BA-degrees-compound) showing the changes in percent of degrees awarded, I can refer to panel (b) of that figure or simply to Figure \@ref(fig:BA-degrees-compound)b. Without labeling, I would have to awkwardly talk about the "right panel" or the "left panel" of Figure \@ref(fig:BA-degrees-compound), and referring to specific panels would be even more awkward for more complex panel arrangements. Labeling is not needed and not normally done for small multiples because there each panel is uniquely specified by the faceting variable(s) that are provided as figure labels.
+
+(ref:BA-degrees-compound) Trends in Bachelor's Degrees conferred by U.S. institutions of higher learning. (a) From 1970 to 2015, the total number of degrees nearly doubled. (b) Among the most popular degree areas, social sciences, history, and education experienced a major decline, while business and health professions grew. Data Source: National Center for Education Statistics
+
+```{r BA-degrees-compound, fig.width =  5.5*6/4.2, fig.asp = 0.4, fig.cap = '(ref:BA-degrees-compound)'}
+BA_degrees %>% 
+  mutate(field = ifelse(field == "Communication, journalism, and related programs",
+                        "Communication, journalism, and related", field)) -> BA_df
+
+BA_df %>% group_by(year) %>%
+  summarize(total = sum(count)) -> BA_totals
+
+textcol <- "gray30"
+
+p1 <- ggplot(BA_totals, aes(year, total/1e6)) + 
+  geom_density_line(stat = "identity", color = "#0072B2",
+                    fill = desaturate(lighten("#0072B280", .3), .4)) + 
+  scale_y_continuous(limits = c(0, 2.05), expand = c(0, 0),
+                     name = "degrees awarded (millions)") +
+  scale_x_continuous(limits = c(1970, 2016), expand = c(0, 0), name = NULL) +
+  theme_dviz_hgrid() +
+  theme(axis.title = element_text(color = textcol),
+        axis.text = element_text(color = textcol),
+        plot.margin = margin(3, 7, 3, 1.5))
+
+BA_df %>% group_by(field) %>%
+  summarize(mean_perc = mean(perc)) %>%
+  arrange(desc(mean_perc)) -> BA_top
+
+top_fields <- filter(BA_top, mean_perc>0.055)$field
+
+BA_top_pairs <- filter(BA_df, field %in% top_fields,
+                       year %in% c(1971, 2015)) %>%
+  mutate(field_wrapped = str_wrap(field, 25))
+
+p2 <- ggplot(BA_top_pairs, aes(x = year, y = perc)) +
+  geom_line(aes(group = field), color = "gray60") +
+  geom_point(fill = "#0072B2", color = "white", shape = 21, size = 3, stroke = 1.5) +
+  scale_x_continuous(limits = c(1971, 2015), breaks = c(1971, 2015),
+                     labels = c("1970-71", "2014-15"),
+                     expand = expand_scale(mult = c(0.1, 0.04)),
+                     name = NULL,
+                     position = "top") +
+  scale_y_continuous(
+    limits = c(0.02, 0.22), expand = c(0, 0),
+    name = "proportion of degrees",
+    labels = scales::percent_format(accuracy = 1),
+    sec.axis = dup_axis(
+      breaks = filter(BA_top_pairs, year == 2015)$perc + 0.0001,
+      labels = filter(BA_top_pairs, year == 2015)$field_wrapped,
+      name = NULL)
+  ) +
+  theme_dviz_open() +
+  theme(axis.line.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.y = element_text(color = textcol),
+        axis.text.y = element_text(color = textcol),
+        axis.line.y.left = element_line(color = textcol),
+        axis.text.y.right = element_text(hjust = 0, vjust = .5,
+                                         margin = margin(0, 0, 0, 0),
+                                         color = "black",
+                                         lineheight = 0.8
+                                         ),
+        axis.line.y.right = element_blank(),
+        axis.ticks.y.right = element_blank(),
+        plot.margin = margin(3, 7, 3, 1.5))
+
+plot_grid(p1, p2, labels = "auto", rel_widths = c(1.2, 1), align = 'h')
+```
+
+When labeling the different panels of a compound figure, pay attention to how the labels fit into the overall figure design. I often see figures where the labels look like they were slapped onto the figure after the fact by a different person. It's not uncommon to see labels made overly large and prominent, placed in an awkward location, or typeset in a different font than the rest of the figure. (See Figure \@ref(fig:BA-degrees-compound-bad) for an example.) The labels should not be the first thing you see when you look at a compound figure. In fact, they don't need to stand out at all. We generally know which figure panel has which label, since the  convention is to start in the top-left corner with "a" and label consecutively left to right and top to bottom. I think of these labels as equivalent to page numbers. You don't normally read the page numbers, and there is no surprise in which page has which number, but on occasion it can be helpful to use page numbers to refer to a particular place in a book or article.
+
+(ref:BA-degrees-compound-bad) Variation of Figure \@ref(fig:BA-degrees-compound) with poor labeling. The labels are too large and thick, they are in the wrong font, and they are placed in an awkward location. Also, while labeling with capital letters is fine and is in fact quite common, labeling needs to be consistent across all figures in a document. In this book, the convention is that multi-panel figures use lower lower-case labels, and thus this figure is inconsistent with the other figures in this book.
+
+```{r BA-degrees-compound-bad, fig.width =  5.5*6/4.2, fig.asp = 0.4, fig.cap = '(ref:BA-degrees-compound-bad)'}
+stamp_ugly(plot_grid(p1, p2, labels = "AUTO", rel_widths = c(1.2, 1), align = 'h',
+                     label_fontfamily = "Palatino", label_fontface = "bold",
+                     label_x = 0.8,
+                     label_y = 0.2,
+                     label_size = 23))
+```
+
+
+We also need to pay attention to how the individual panels of a compound figure fit together. It is possible to make a set of figure panels that individually are fine but jointly don't work. In particular, we need to employ a consistent visual language. By "visual language," I mean the colors, symbols, fonts, and so on that we use to display the data. And keeping the language consistent means, in a nutshell, that the same things look the same or at least substantively similar across figures.
+
+Let's look at an example that violates this principle. Figure \@ref(fig:athletes-composite-inconsistent) is a three-panel figure visualizing a dataset about the physiology and body-composition of male and female athletes. Panel (a) shows the number of men and women in the dataset, panel (b) shows the counts of red and white blood cells for men and women, and panel (c) shows the body fat percentage of men and women, broken down by sport. Each panel individually is an acceptable figure. However, in combination the three panels do not work, because they don't share a common visual language. First, panel (a) uses the same blue color for both male and female athletes, panel (b) uses it only for male athletes, and panel (c) uses it for female athletes. Moreover, panels (b) and (c) introduce additional colors, but these colors differ between the two panels. It would have been better to use the same two colors consistently for male and female athletes, and to apply the same coloring scheme to panel (a) as well. Second, in panels (a) and (b) women are on the left and men on the right, but in panel (c) the order is reversed. The order of the boxplots in panel (c) should be switched so it matches panels (a) and (b).
+
+(ref:athletes-composite-inconsistent) Physiology and body-composition of male and female athletes. (a) The data set encompasses 73 female and 85 male professional athletes. (b) Male athletes tend to have higher red blood cell (RBC, reported in units of $10^{12}$ per liter) counts than female athletes, but there are no such differences for white blood cell counts (WBC, reported in units of $10^{9}$ per liter). (c) Male athletes tend to have a lower body fat percentage than female athletes performing in the same sport. Data source: @Telford-Cunningham-1991
+
+```{r athletes-composite-inconsistent, fig.width = 5*6/4.2, fig.asp = 0.75, fig.cap = '(ref:athletes-composite-inconsistent)'}
+male_sport <- unique(filter(Aus_athletes, sex=="m")$sport)
+female_sport <- unique(filter(Aus_athletes, sex=="f")$sport)
+both_sport <- male_sport[male_sport %in% female_sport]
+athletes_df <- filter(Aus_athletes, sport %in% both_sport) %>%
+  mutate(
+    sport = case_when(
+      sport == "track (400m)" ~ "track",
+      sport == "track (sprint)" ~ "track",
+      TRUE ~ sport
+    ),
+    sex = factor(sex, levels = c("f", "m"))
+  )
+
+p1 <- ggplot(athletes_df, aes(x = sex)) + 
+  geom_bar(fill = "#56B4E9E0") +
+  scale_y_continuous(limits = c(0, 95), expand = c(0, 0), name = "number") +
+  scale_x_discrete(name = NULL, labels = c("female", "male")) +
+  theme_dviz_hgrid(12, rel_small = 1) + 
+  theme(
+    axis.ticks.x = element_blank(),
+    #axis.ticks.length = grid::unit(0, "pt"),
+    plot.margin = margin(3, 0, 0, 0)
+  )
+
+p2 <- ggplot(athletes_df, aes(x = rcc, y = wcc, shape = sex, color = sex, fill = sex)) + 
+  geom_point(size = 2.5) +
+  scale_x_continuous(limits = c(3.8, 6.75), name = NULL) +
+  scale_y_continuous(limits = c(2.2, 11.), expand = c(0, 0), name = "WBC count") +
+  scale_shape_manual(
+    values = c(21, 22),
+    labels = c("female   ", "male"), name = NULL,
+    guide = guide_legend(direction = "horizontal")
+  ) +
+  scale_color_manual(
+    values = c("#CC79A7", "#56B4E9"), name = NULL,
+    labels = c("female   ", "male"),
+    guide = guide_legend(direction = "horizontal")
+  ) +
+  scale_fill_manual(
+    values = c("#CC79A780", "#56B4E980"), name = NULL,
+    labels = c("female   ", "male"),
+    guide = guide_legend(direction = "horizontal")
+  ) +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    legend.position = c(1, .1),
+    legend.justification = "right",
+    legend.box.background = element_rect(fill = "white", color = "white"),
+    plot.margin = margin(3, 0, 0, 0)
+  )
+
+p_row <- plot_grid(
+  p1, NULL, p2, 
+  labels = c("a", "", "b"),
+  align = 'h',
+  nrow = 1,
+  rel_widths = c(0.7, 0.02, 1)
+) +
+  draw_text(
+    "RBC count", x = 1, y = 0.01, size = 12, hjust = 1, vjust = 0,
+    family = dviz_font_family
+  )
+
+p3 <- ggplot(
+  athletes_df,
+  aes(
+    x = sport, y = pcBfat, color = fct_relevel(sex, "m"),
+    fill = fct_relevel(sex, "m")
+  )
+) + 
+  geom_boxplot(width = 0.5) +
+  scale_color_manual(
+    values = c("#009E73", "#56B4E9"), name = NULL,
+    labels = c("male", "female")
+  ) +
+  scale_fill_manual(
+    values = c("#009E7340", "#56B4E940"), name = NULL,
+    labels = c("male", "female")
+  ) +
+  scale_x_discrete(name = NULL) +
+  scale_y_continuous(name = "% body fat") +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    axis.line.x = element_blank(),
+    axis.ticks.x = element_blank()
+    #axis.ticks.length = grid::unit(0, "pt")
+  )
+
+stamp_bad(
+  plot_grid(
+    p_row, NULL, p3, 
+    ncol = 1,
+    rel_heights = c(1, .04, 1),
+    labels = c("", "", "c")
+  ) +
+  theme(plot.margin = margin(6, 6, 3, 1.5))
+)
+```
+
+Figure \@ref(fig:athletes-composite-good) fixes all these issues. In this figure, female athletes are consistently shown in orange and to the left of male athletes, who are shown in blue. Notice how much easier it is to read this figure than Figure \@ref(fig:athletes-composite-inconsistent). When we use a consistent visual language, it doesn't take much mental effort to determine which visual elements in the different panels represent women and which men. Figure \@ref(fig:athletes-composite-inconsistent), on the other hand, can be quite confusing. In particular, on first glance it may generate the impression that men tend to have higher body fat percentages than women. Notice also that we need only a single legend in Figure \@ref(fig:athletes-composite-good) but needed two in Figure \@ref(fig:athletes-composite-inconsistent). Since the visual language is consistent, the same legend works for panels (b) and (c).
+
+(ref:athletes-composite-good) Physiology and body-composition of male and female athletes. This figure shows the exact same data as Figure \@ref(fig:athletes-composite-inconsistent), but now using a consistent visual language. Data for female athletes is always shown to the left of the corresponding data for male athletes, and genders are consistently color-coded throughout all elements of the figure. Data source: @Telford-Cunningham-1991
+
+```{r athletes-composite-good, fig.width = 5*6/4.2, fig.asp = 0.75, fig.cap = '(ref:athletes-composite-good)'}
+p1 <- ggplot(athletes_df, aes(x = sex, fill = sex)) + 
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 95), expand = c(0, 0), name = "number") +
+  scale_x_discrete(name = NULL, labels = c("female", "male")) +
+  scale_fill_manual(values = c("#D55E00D0", "#0072B2D0"), guide = "none") +
+  theme_dviz_hgrid(12, rel_small = 1) + 
+  theme(
+    #axis.line.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    #axis.ticks.length = grid::unit(0, "pt"),
+    plot.margin = margin(3, 0, 0, 0)
+  )
+
+p2 <- ggplot(athletes_df, aes(x = rcc, y = wcc, fill = sex)) + 
+  geom_point(pch = 21, color = "white", size = 2.5) +
+  scale_x_continuous(limits = c(3.8, 6.75), name = NULL) +
+  scale_y_continuous(limits = c(2.2, 11.), expand = c(0, 0), name = "WBC count") +
+  scale_fill_manual(values = c("#D55E00D0", "#0072B2D0"), guide = "none") +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(plot.margin = margin(3, 0, 0, 0))
+
+p_row <- plot_grid(
+  p1, NULL, p2,
+  labels = c("a", "", "b"),
+  align = 'h', 
+  nrow = 1,
+  rel_widths = c(0.7, 0.02, 1)
+) +
+  draw_text(
+    "RBC count", x = 1, y = 0.01, size = 12, hjust = 1, vjust = 0,
+    family = dviz_font_family
+  )
+
+GeomBP <- GeomBoxplot
+GeomBP$draw_key <- draw_key_polygon
+
+p3 <- ggplot(athletes_df, aes(x = sport, y = pcBfat, color = sex, fill = sex)) + 
+  stat_boxplot(width = 0.5, geom = GeomBP) +
+  scale_color_manual(
+    values = c("#D55E00", "#0072B2"), name = NULL,
+    labels = c("female   ", "male")) +
+  scale_fill_manual(values = c("#D55E0040", "#0072B240"), guide = "none") +
+  scale_x_discrete(name = NULL) +
+  scale_y_continuous(name = "% body fat") +
+  guides(color = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00D0", "#0072B2D0"),
+      color = "white", size = 2
+    ),
+    direction = "horizontal")
+  ) +
+  theme_dviz_hgrid(12, rel_small = 1) +
+  theme(
+    axis.line.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    #axis.ticks.length = grid::unit(0, "pt"),
+    legend.position = c(1., .96),
+    legend.justification = "right"
+  )
+
+plot_grid(
+  p_row, NULL, p3,
+  ncol = 1,
+  rel_heights = c(1, .04, 1),
+  labels = c("", "", "c")
+) +
+  theme(plot.margin = margin(6, 6, 3, 1.5))
+```
+
+Finally, we need to pay attention to the alignment of individual figure panels in a compound figure. The axes and other graphical elements of the individual panels should all be aligned to each other. Getting the alignment right can be quite tricky, in particular if individual panels are prepared separately, possibly by different people and/or in different programs, and then pasted together in an image manipulation program. To draw your attention to such alignment issues, Figure \@ref(fig:athletes-composite-misaligned) shows a variation of Figure \@ref(fig:athletes-composite-good) where now all figure elements are slightly out of alignment. I have added axis lines to all panels of Figure \@ref(fig:athletes-composite-misaligned) to emphasize these alignment problems. Notice how no axis line is aligned with any other axis line for any other panel of the figure.
+
+(ref:athletes-composite-misaligned) Variation of Figure \@ref(fig:athletes-composite-good) where all figure panels are slightly misaligned. Misalignments are ugly and should be avoided.
+
+```{r athletes-composite-misaligned, fig.width = 5*6/4.2, fig.asp = 0.75, fig.cap = '(ref:athletes-composite-misaligned)'}
+p1 <- ggplot(athletes_df, aes(x = sex, fill = sex)) + 
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 95), expand = c(0, 0), name = "number") +
+  scale_x_discrete(name = NULL, labels = c("female", "male")) +
+  scale_fill_manual(values = c("#D55E00D0", "#0072B2D0"), guide = "none") +
+  theme_dviz_open(12, rel_small = 1) +
+  background_grid(major = "y") +
+  theme(
+    #axis.line.x = element_blank(),
+    #axis.ticks.x = element_blank(),
+    #axis.ticks.length = grid::unit(0, "pt"),
+    plot.margin = margin(3, 6, 6, 0)
+  )
+
+p2 <- ggplot(athletes_df, aes(x = rcc, y = wcc, fill = sex)) + 
+  geom_point(pch = 21, color = "white", size = 2.5) +
+  scale_x_continuous(limits = c(3.8, 6.75), name = "RBC count") +
+  scale_y_continuous(limits = c(2.2, 11.), expand = c(0, 0), name = "WBC count") +
+  scale_fill_manual(values = c("#D55E00D0", "#0072B2D0"), guide = "none") +
+  theme_dviz_open(12, rel_small = 1) +
+  background_grid(major = "y") +
+  theme(plot.margin = margin(3, 18, 0, 0))
+
+p_row <- plot_grid(
+  NULL, p1, p2, labels = c("", "a", "b"), nrow = 1,
+  rel_widths = c(0.03, 0.7, 1)
+)
+
+GeomBP <- GeomBoxplot
+GeomBP$draw_key <- draw_key_polygon
+
+p3 <- ggplot(athletes_df, aes(x = sport, y = pcBfat, color = sex, fill = sex)) + 
+  stat_boxplot(width = 0.5, geom = GeomBP) +
+  scale_color_manual(
+    values = c("#D55E00", "#0072B2"), name = NULL,
+    labels = c("female   ", "male")
+  ) +
+  scale_fill_manual(values = c("#D55E0040", "#0072B240"), guide = "none") +
+  scale_x_discrete(name = NULL) +
+  scale_y_continuous(name = "% body fat") +
+  guides(color = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00D0", "#0072B2D0"),
+      color = "white", size = 2
+    ),
+    direction = "horizontal")
+  ) +
+  theme_dviz_open(12, rel_small = 1) +
+  background_grid(major = "y") +
+  theme(
+    #axis.line.x = element_blank(),
+    #axis.ticks.x = element_blank(),
+    #axis.ticks.length = grid::unit(0, "pt"),
+    legend.position = c(1., 0.95),
+    legend.justification = "right"
+  )
+
+stamp_ugly(
+  plot_grid(
+    p_row, p3, ncol = 1, labels = c("", "c")
+  ) +
+  theme(plot.margin = margin(6, 6, 0, 1.5))
+)
+```

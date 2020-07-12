@@ -1,0 +1,328 @@
+```{r echo = FALSE, message = FALSE}
+# run setup script
+source("_common.R")
+
+library(forcats)
+library(ggridges)
+```
+
+# Visualizing many distributions at once {#boxplots-violins}
+
+There are many scenarios in which we want to visualize multiple distributions at the same time. For example, consider weather data. We may want to visualize how temperature varies across different months while also showing the distribution of observed temperatures within each month. This scenario requires showing twelve temperature distributions at once, one for each month. None of the visualizations discussed in Chapters \@ref(histograms-density-plots) or \@ref(ecdf-qq) work well in this case. Instead, viable approaches include boxplots, violin plots, and ridgeline plots.
+
+Whenever we are dealing with many distributions, it is helpful to think in terms of the response variable and one or more grouping variables. The response variable is the variable whose distributions we want to show. The grouping variables define subsets of the data with distinct distributions of the response variable. For example, for temperature distributions across months, the response variable is the temperature and the grouping variable is the month. All techniques discussed in this chapter draw the response variable along one axis and the grouping variables along the other. In the following, I will first describe approaches that show the response variable along the vertical axis, and then I will describe approaches that show the response variable along the horizontal axis. In all cases discussed, we could flip the axes and arrive at an alternative and viable visualization. I am showing here the canonical forms of the various visualizations.
+
+
+## Visualizing distributions along the vertical axis {#boxplots-violins-vertical}
+
+The simplest approach to showing many distributions at once is to show their mean or median as points, with some indication of the variation around the mean or median shown by error bars. Figure \@ref(fig:lincoln-temp-points-errorbars) demonstrates this approach for the distributions of monthly temperatures in Lincoln, Nebraska, in 2016. I have labeled this figure as bad because there are multiple problems with this approach. First, by representing each distribution by only one point and two error bars, we are losing a lot of information about the data. Second, it is not immediately obvious what the points represent, even though most readers would likely guess that they represent either the mean or the median. Third, it is definitely not obvious what the error bars represent. Do they represent the standard deviation of the data, the standard error of the mean, a 95% confidence interval, or something else altogether? There is no commonly accepted standard. By reading the figure caption of Figure \@ref(fig:lincoln-temp-points-errorbars), we can see that they represent here twice the standard deviation of the daily mean temperatures, meant to indicate the range that contains approximately 95% of the data. However, error bars are more commonly employed to visualize the standard error (or twice the standard error for a 95% confidence interval), and it is easy for readers to confuse the standard error with the standard deviation. The standard error quantifies how accurate our estimate of the mean is, whereas the standard deviation estimates how much spread there is in the data around the mean. It is possible for a dataset to have both a very small standard error of the mean and a very large standard deviation. Fourth, symmetric error bars are misleading if there is any skew in the data, which is the case here and almost always for real-world datasets.
+
+(ref:lincoln-temp-points-errorbars) Mean daily temperatures in Lincoln, Nebraska in 2016. Points represent the average daily mean temperatures for each month, averaged over all days of the month, and error bars represent twice the standard deviation of the daily mean temperatures within each month. This figure has been labeled as "bad" because because error bars are conventionally used to visualize the uncertainty of an estimate, not the variability in a population. Data source: Weather Underground
+
+```{r lincoln-temp-points-errorbars, fig.cap = '(ref:lincoln-temp-points-errorbars)'}
+lincoln_weather %>%
+  mutate(
+    month_short = fct_recode(
+      Month,
+      Jan = "January",
+      Feb = "February",
+      Mar = "March",
+      Apr = "April",
+      May = "May",
+      Jun = "June",
+      Jul = "July",
+      Aug = "August",
+      Sep = "September",
+      Oct = "October",
+      Nov = "November",
+      Dec = "December"
+    )
+  ) %>%
+  mutate(month_short = fct_rev(month_short)) -> lincoln_df
+
+
+lincoln_errbar <- ggplot(lincoln_df, aes(x = month_short, y = `Mean Temperature [F]`)) +
+  stat_summary(
+    fun.y = mean, fun.ymax = function(x) {mean(x) + 2*sd(x)},
+    fun.ymin = function(x) {mean(x) - 2*sd(x)}, geom = "pointrange",
+    fatten = 5
+  ) +
+  xlab("month") + 
+  ylab("mean temperature (°F)") +
+  theme_dviz_open() +
+  theme(plot.margin = margin(3, 7, 3, 1.5))
+
+stamp_bad(lincoln_errbar)
+```
+
+We can address all four shortcomings of Figure \@ref(fig:lincoln-temp-points-errorbars) by using a traditional and commonly used method for visualizing distributions, the boxplot. A boxplot divides the data into quartiles and visualizes them in a standardized manner (Figure \@ref(fig:boxplot-schematic)).
+
+(ref:boxplot-schematic) Anatomy of a boxplot. Shown are a cloud of points (left) and the corresponding boxplot (right). Only the *y* values of the points are visualized in the boxplot. The line in the middle of the boxplot represents the median, and the box encloses the middle 50% of the data. The top and bottom whiskers extend either to the maximum and minimum of the data or to the maximum or minimum that falls within 1.5 times the height of the box, whichever yields the shorter whisker. The distances of 1.5 times the height of the box in either direction are called the upper and the lower fences. Individual data points that fall beyond the fences are referred to as outliers and are usually shown as individual dots.
+
+```{r boxplot-schematic, fig.width = 5*6/4.2, fig.cap = '(ref:boxplot-schematic)'}
+set.seed(3423)
+y <- c(rnorm(100), 3.4)
+s <- boxplot.stats(y)
+df <- data.frame(y = c(s$stats, max(y)),
+                 x = c(1.03, 1.405, 1.405, 1.405, 1.03, 1.04),
+                 label = c("minimum", "first quartile", "median", "third quartile", "maximum within upper fence", "outlier"))
+p_boxplot <- ggplot(data.frame(y), aes(x = 1, y = y)) + geom_boxplot(fill = 'grey90') +
+  geom_text(data = df, aes(x, y, label = label), hjust = 0,
+            size = 14/.pt, family = dviz_font_family) +
+  scale_x_continuous(limits = c(0, 3.5), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-2.55, 3.5), expand = c(0, 0)) +
+  theme_nothing()
+
+p_points <- ggplot(data.frame(y), aes(x = 0, y = y)) + 
+  geom_point(position = position_jitter(width = .4, height = 0, seed = 320)) +
+  scale_x_continuous(limits = c(-1.8, .4), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-2.55, 3.5), expand = c(0, 0)) +
+  theme_nothing()
+
+plot_grid(p_points, p_boxplot, rel_widths = c(.65, 1), nrow = 1)
+```
+
+Boxplots are simple yet informative, and they work well when plotted next to each other to visualize many distributions at once. For the Lincoln temperature data, using boxplots leads to Figure \@ref(fig:lincoln-temp-boxplots). In that figure, we can now see that temperature is highly skewed in December (most days are moderately cold and a few are extremely cold) and not very skewed at all in some other months, for example in July.
+
+(ref:lincoln-temp-boxplots) Mean daily temperatures in Lincoln, Nebraska, visualized as boxplots.
+
+```{r lincoln-temp-boxplots, fig.cap = '(ref:lincoln-temp-boxplots)'}
+lincoln_box <- ggplot(lincoln_df, aes(x = month_short, y = `Mean Temperature [F]`)) +
+  geom_boxplot(fill = 'grey90') + 
+  xlab("month") + 
+  ylab("mean temperature (°F)") +
+  theme_dviz_open() +
+  theme(plot.margin = margin(3, 7, 3, 1.5))
+
+lincoln_box
+```
+
+Boxplots were invented by the statistician John Tukey in the early 1970s, and they quickly gained popularity because they were highly informative while being easy to draw by hand. Most data visualizations were drawn by hand at that time. However, with modern computing and visualization capabilities, we are not limited to what is easily drawn by hand. Therefore, more recently, we see boxplots being replaced by violin plots, which are equivalent to the density estimates discussed in Chapter \@ref(histograms-density-plots) but rotated by 90 degrees and then mirrored (Figure \@ref(fig:violin-schematic)). Violins can be used whenever one would otherwise use a boxplot, and they provide a much more nuanced picture of the data. In particular, violin plots will accurately represent bimodal data whereas a boxplot will not.
+
+
+(ref:violin-schematic) Anatomy of a violin plot. Shown are a cloud of points (left) and the corresponding violin plot (right). Only the *y* values of the points are visualized in the violin plot. The width of the violin at a given *y* value represents the point density at that *y* value. Technically, a violin plot is a density estimate rotated by 90 degrees and then mirrored. Violins are therefore symmetric. Violins begin and end at the minimum and maximum data values, respectively. The thickest part of the violin corresponds to the highest point density in the dataset.
+
+```{r violin-schematic, fig.width = 5*6/4.2, fig.cap = '(ref:violin-schematic)'}
+set.seed(3423)
+y <- c(rnorm(100), 3.4)
+d <- density(y)
+df <- data.frame(y = c(min(y), d$x[which(d$y == max(d$y))], max(y)),
+                 x = c(1.1, 1.5, 1.08),
+                 label = c("minimum data value", "maximum point density", "maximum data value"))
+p_violin <- ggplot(data.frame(y), aes(x = 1, y = y)) + geom_violin(fill = 'grey90') +
+  geom_text(data = df, aes(x, y, label = label), hjust = 0,
+            size = 14/.pt, family = dviz_font_family) +
+  scale_x_continuous(limits = c(0, 3.5), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-2.55, 3.5), expand = c(0, 0)) +
+  theme_nothing()
+
+p_points <- ggplot(data.frame(y), aes(x = 0, y = y)) + 
+  geom_point(position = position_jitter(width = .4, height = 0, seed = 320)) +
+  scale_x_continuous(limits = c(-1.8, .4), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(-2.55, 3.5), expand = c(0, 0)) +
+  theme_nothing()
+
+plot_grid(p_points, p_violin, rel_widths = c(.65, 1), nrow = 1)
+```
+
+```{block type='rmdtip', echo=TRUE}
+Before using violins to visualize distributions, verify that you have sufficiently many data points in each group to justify showing the point densities as smooth lines.
+```
+
+
+When we visualize the Lincoln temperature data with violins, we obtain Figure \@ref(fig:lincoln-temp-violins). We can now see that some months do have moderately bimodal data. For example, the month of November seems to have had two temperature clusters, one around 50 degrees and one around 35 degrees Fahrenheit.
+
+
+(ref:lincoln-temp-violins) Mean daily temperatures in Lincoln, Nebraska, visualized as violin plots.
+
+```{r lincoln-temp-violins, fig.cap = '(ref:lincoln-temp-violins)'}
+lincoln_violin <- ggplot(lincoln_df, aes(x = month_short, y = `Mean Temperature [F]`)) +
+  geom_violin(fill = 'grey90') +
+  xlab("month") + 
+  ylab("mean temperature (°F)") +
+  theme_dviz_open() +
+  theme(plot.margin = margin(3, 7, 3, 1.5))
+
+lincoln_violin
+```
+
+
+Because violin plots are derived from density estimates, they have similar shortcomings (Chapter \@ref(histograms-density-plots)). In particular, they can generate the appearance that there is data where none exists, or that the data set is very dense when actually it is quite sparse. We can try to circumvent these issues by simply plotting all the individual data points directly, as dots (Figure \@ref(fig:lincoln-temp-all-points)). Such a figure is called a *strip chart.* Strip charts are fine in principle, as long as we make sure that we don't plot too many points on top of each other. A simple solution to overplotting is to spread out the points somewhat along the *x* axis, by adding some random noise in the *x* dimension (Figure \@ref(fig:lincoln-temp-jittered)). This technique is also called *jittering.*
+
+(ref:lincoln-temp-all-points) Mean daily temperatures in Lincoln, Nebraska, visualized as strip chart. Each point represents the mean temperature for one day. This figure is labeled as "bad" because so many points are plotted on top of each other that it is not possible to ascertain which temperatures were the most common in each month. 
+
+```{r lincoln-temp-all-points, fig.cap = '(ref:lincoln-temp-all-points)'}
+lincoln_points <- ggplot(lincoln_df, aes(x = month_short, y = `Mean Temperature [F]`)) +
+  geom_point(size = 0.75) + 
+  xlab("month") + 
+  ylab("mean temperature (°F)") +
+  theme_dviz_open() +
+  theme(plot.margin = margin(3, 7, 3, 1.5))
+
+stamp_bad(lincoln_points)
+```
+
+
+(ref:lincoln-temp-jittered) Mean daily temperatures in Lincoln, Nebraska, visualized as strip chart. The points have been jittered along the *x* axis to better show the density of points at each temperature value.
+
+```{r lincoln-temp-jittered, fig.cap = '(ref:lincoln-temp-jittered)'}
+lincoln_jitter <- ggplot(lincoln_df, aes(x = month_short, y = `Mean Temperature [F]`)) +
+  geom_point(position = position_jitter(width = .15, height = 0, seed = 320), size = 0.75) +
+  xlab("month") + 
+  ylab("mean temperature (°F)") +
+  theme_dviz_open() +
+  theme(plot.margin = margin(3, 7, 3, 1.5))
+
+lincoln_jitter
+```
+
+```{block type='rmdtip', echo=TRUE}
+Whenever the dataset is too sparse to justify the violin visualization, plotting the raw data as individual points will be possible.
+```
+
+
+Finally, we can combine the best of both worlds by spreading out the dots in proportion to the point density at a given *y* coordinate. This method, called a *sina plot* [@Sidiropoulos_et_al_2018], can be thought of as a hybrid between a violin plot and jittered points, and it shows each individual point while also visualizing the distributions. I have here drawn the sina plots on top of the violins to highlight the relationship between these two approaches (Figure \@ref(fig:lincoln-temp-sina)).
+
+(ref:lincoln-temp-sina) Mean daily temperatures in Lincoln, Nebraska, visualized as a sina plot (combination of individual points and violins). The points have been jittered along the *x* axis in proportion to the point density at the respective temperature. The name *sina plot* is meant to honor Sina Hadi Sohi, a student at the University of Copenhagen, Denmark, who wrote the first version of the code that researchers at the university used to make such plots (Frederik O. Bagger, personal communication).
+
+```{r lincoln-temp-sina, fig.cap = '(ref:lincoln-temp-sina)'}
+lincoln_sina <- ggplot(lincoln_df, aes(x = month_short, y = `Mean Temperature [F]`)) +
+  geom_violin(color = "transparent", fill = "gray90") + 
+  stat_sina(size = 0.75) + 
+  xlab("month") + 
+  ylab("mean temperature (°F)") +
+  theme_dviz_open() +
+  theme(plot.margin = margin(3, 7, 3, 1.5))
+
+lincoln_sina
+```
+
+
+## Visualizing distributions along the horizontal axis {#boxplots-violins-horizontal}
+
+In Chapter \@ref(histograms-density-plots), we visualized distributions along the horizontal axis using histograms and density plots. Here, we will expand on this idea by staggering the distribution plots in the vertical direction. The resulting visualization is called a ridgeline plot, because these plots look like mountain ridgelines. Ridgeline plots tend to work particularly well if want to show trends in distributions over time.
+
+The standard ridgeline plot uses density estimates (Figure \@ref(fig:temp-ridgeline)). It is quite closely related to the violin plot, but frequently evokes a more intuitive understanding of the data. For example, the two clusters of temperatures around 35 degrees and 50 degrees Fahrenheit in November are much more obvious in Figure \@ref(fig:temp-ridgeline) than in Figure \@ref(fig:lincoln-temp-violins).
+
+(ref:temp-ridgeline) Temperatures in Lincoln, Nebraska, in 2016, visualized as a ridgeline plot. For each month, we show the distribution of daily mean temperatures measured in Fahrenheit. Original figure concept: @Wehrwein-Lincoln-weather.
+
+```{r temp-ridgeline, fig.cap = '(ref:temp-ridgeline)'}
+bandwidth <- 3.4
+
+ggplot(lincoln_df, aes(x = `Mean Temperature [F]`, y = `Month`)) +
+  geom_density_ridges(
+    scale = 3, rel_min_height = 0.01,
+    bandwidth = bandwidth, fill = lighten("#56B4E9", .3), color = "white"
+  ) +
+  scale_x_continuous(
+    name = "mean temperature (°F)",
+    expand = c(0, 0), breaks = c(0, 25, 50, 75)
+  ) +
+  scale_y_discrete(name = NULL, expand = c(0, .2, 0, 2.6)) +
+  theme_dviz_grid() +
+  theme(
+    axis.text.y = element_text(vjust = 0),
+    plot.margin = margin(3, 7, 3, 1.5)
+  )
+```
+
+Because the *x* axis shows the response variable and the *y* axis shows the grouping variable, there is no separate axis for the density estimates in a ridgeline plot. Density estimates are shown alongside the grouping variable. This is no different from the violin plot, where densities are also shown alongside the grouping variable, without a separate, explicit scale. In both cases, the purpose of the plot is not to show specific density values but instead to allow for easy comparison of density shapes and relative heights across groups.
+
+
+In principle, we can use histograms instead of density plots in a ridgeline visualization. However, the resulting figures often don't look very good (Figure \@ref(fig:temp-binline)). The problems are similar to those of stacked or overlapping histograms (Chapter \@ref(histograms-density-plots)). Because the vertical lines in these ridgeline histograms appear always at the exact same *x* values, the bars from different histograms align with each other in confusing ways. In my opinion, it is better to not draw such overlapping histograms.
+
+(ref:temp-binline) Temperatures in Lincoln, Nebraska, in 2016, visualized as a ridgeline plot of histograms. The individual histograms don't separate well visually, and the overall figure is quite busy and confusing.
+
+```{r temp-binline, fig.cap = '(ref:temp-binline)'}
+bandwidth <- 3.4
+
+p_binline <- ggplot(lincoln_df, aes(x = `Mean Temperature [F]`, y = `Month`)) +
+  stat_binline(
+    scale = 3, bins = 17, draw_baseline = FALSE,
+    fill = lighten("#56B4E9", .3), color = "black", alpha = 1
+  ) +
+  scale_x_continuous(
+    name = "mean temperature (°F)",
+    expand = c(0, 0), breaks = c(0, 25, 50, 75)
+  ) +
+  scale_y_discrete(
+    name = NULL,
+    expand = c(0, .2, 0, 2.6)
+  ) +
+  theme_dviz_grid() +
+  theme(
+    axis.text.y = element_text(vjust = 0),
+    plot.margin = margin(3, 7, 3, 1.5)
+  )
+
+stamp_ugly(p_binline) 
+```
+
+
+
+Ridgeline plots scale to very large numbers of distributions. For example, Figure \@ref(fig:movies-ridgeline) shows the distributions of movie lengths from 1913 to 2005. This figure contains almost 100 distinct distributions and yet it is very easy to read. We can see that in the 1920s, movies came in many different lengths, but since about 1960 movie length has standardized to approximately 90 minutes.
+
+(ref:movies-ridgeline) Evolution of movie lengths over time. Since the 1960s, the majority of all movies are approximately 90 minutes long. Data source: Internet Movie Database, IMDB
+
+```{r movies-ridgeline, fig.width = 5, fig.asp = 1, fig.cap = '(ref:movies-ridgeline)'}
+ggplot(movie_lengths, aes(x = length, y = year, group = year)) +
+  geom_density_ridges(scale = 10, size = 0.25, rel_min_height = 0.03, fill = "grey85", na.rm = TRUE) +
+  scale_x_continuous(limits = c(0, 200), expand = c(0, 0), name = "length (minutes)") +
+  scale_y_reverse(
+    breaks = c(2000, 1980, 1960, 1940, 1920),
+    limits = c(2005, 1903), expand = c(0, 0)
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_grid() +
+  theme(
+    plot.margin = margin(3, 14, 3, 1.5)
+    )
+```
+
+Ridgeline plots also work well if we want to compare two trends over time. This is a scenario that arises commonly if we want to analyze the voting patterns of the members of two different parties. We can make this comparison by staggering the distributions vertically by time and drawing two differently colored distributions at each time point, representing the two parties (Figure \@ref(fig:dw-nominate-ridgeline)).
+
+(ref:dw-nominate-ridgeline) Voting patterns in the U.S. House of Representatives have become increasingly polarized. DW-NOMINATE scores are frequently used to compare voting patterns of representatives between parties and over time. Here, score distributions are shown for each Congress from 1963 to 2013 separately for Democrats and Republicans. Each Congress is represented by its first year. Original figure concept: @McDonald-DW-NOMINATE.
+
+```{r dw-nominate-ridgeline, fig.width = 5.5*6/4.2, fig.asp = 0.5, fig.cap = '(ref:dw-nominate-ridgeline)'}
+# U.S. House 1963-2013
+all_house_88_113 <- dw_nominate_house %>% 
+  filter(congress >= 88 & cd !=0 & cd != 98 & cd != 99) %>%
+  filter(party_code == 100 | party_code == 200) %>%
+  arrange(desc(congress)) %>% mutate(year1 = congress * 2 + 1787) %>%
+  arrange(desc(year1))
+
+ggplot(all_house_88_113,
+       aes(
+         x = dim_1,
+         y = year1,
+         group = interaction(party_code, factor(year1)),
+         fill = interaction(party_code, factor(year1))
+        )
+      ) +
+  geom_density_ridges(scale = 5, size = 0.25, rel_min_height = 0.01, alpha=0.9, color = "white") +
+  scale_x_continuous(
+    name = "DW-NOMINATE score",
+    limits = c(-.8, 1.3),
+    breaks = c(-1,-.75,-.5,-.25,0,.25,.5,.75,1)
+  ) +
+  scale_y_reverse(
+    name = "year",
+    expand = c(0, 0), breaks=c(seq(2013, 1963, -10))
+  ) +
+  scale_fill_cyclical(
+    breaks = c("100.1963", "200.1963"),
+    labels = c(`100.1963` = "Democrats  ", `200.1963` = "Republicans"),
+    values = c("#4040ff", "#ff4040", "#6060ff", "#ff6060"),
+    name = NULL,
+    guide = "legend"
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_dviz_grid() +
+  theme(
+    axis.text.y = element_text(vjust = 0),
+    legend.position = c(1, 1),
+    legend.justification = c(1, 1),
+    legend.direction = "horizontal",
+    legend.background = element_rect(fill = "white")
+  )
+```
