@@ -34,6 +34,14 @@ docker run --rm -p 38787:8787 \
 > Note. There is a script `run_docker.sh` that simplifies this.
 
 
+## Publishing the book online
+Send the publishing folder `/dataviz-2020/_book_final` to a subtree branch in GitHub gh-pages with:
+
+```
+ git subtree push --prefix dataviz-2020/_book_final origin gh-pages
+ ```
+
+
 ## Packages and dependencies
 
 ### Build from source
