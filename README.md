@@ -1,5 +1,10 @@
 # dataviz 2020
 
+This book "Fundamentals of Data Visualization` by Claus Wilke has been made fully reproducible using a Docker container. The compiled book can be [read online here](https://f0nzie.github.io/dataviz-wilke-2020/). The original repository of the book is in [GiHub at this link](https://github.com/clauswilke/dataviz), and can also be [reaed online here](https://serialmentor.com/dataviz/).
+
+The book is great at learning advanced visualization techniques using R without focusing too much on the code but rather on universal, timeless best practices.
+
+
 
 
 ## Details
